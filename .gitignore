@@ -1,0 +1,21 @@
+# Local package/cache data
+npm-cache/
+node_modules/
+
+# Local server output
+server.log
+server-error.log
+*.log
+
+# Generated browser test screenshots
+tests/*.png
+
+# Local example pattern images
+assets/demo-pattern.png
+assets/examples/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

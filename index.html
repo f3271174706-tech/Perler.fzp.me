@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f4ee" />
+    <title>智能拼豆板</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23111%22/><circle cx=%2216%22 cy=%2216%22 r=%227%22 fill=%22white%22/></svg>" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+      <input id="exampleFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+
+      <section class="workspace vertical-workspace" id="workspace">
+        <div class="hidden" aria-hidden="true">
+          <span id="patternName"></span><span id="imageResolution"></span>
+          <span id="gridStatus"></span><span id="gridSize"></span>
+          <div id="imageCard"></div>
+          <input id="paletteSearch" type="search" />
+          <span id="focusStatus"></span><span id="currentDot"></span><span id="remainingCount"></span>
+        </div>
+
+        <section class="board-panel">
+          <div class="board-stage" id="boardStage">
+            <div class="empty-board" id="emptyBoard">
+              <button class="admin-mode-button" id="adminModeButton" type="button" aria-label="开启管理员模式" title="管理员模式" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.6-2.8 8-7 10-4.2-2-7-5.4-7-10V6l7-3Z"></path><path d="m9.5 12 1.7 1.7 3.6-3.9"></path></svg>
+              </button>
+              <div class="start-gallery" id="startGallery">
+                <div class="start-gallery-head">
+                  <h1>示例图纸</h1>
+                  <p>选择一张真实图纸直接在画布中查看</p>
+                </div>
+              </div>
+              <div class="start-actions">
+                <button class="canvas-add-button start-add-button" id="addPattern" type="button">添加图纸</button>
+                <button class="upload-example-button hidden" id="uploadExamplePattern" type="button">上传示例图纸</button>
+              </div>
+            </div>
+            <canvas id="beadCanvas" class="hidden" aria-label="拼豆图纸画布"></canvas>
+          </div>
+        </section>
+
+        <div class="selection-row hidden" id="selectionRow">
+          <div class="current-color hidden" id="currentColor">
+            <span>已高亮</span>
+            <strong id="currentCode">无</strong>
+          </div>
+        </div>
+
+        <section class="palette-section hidden" id="paletteSection">
+          <div class="palette-rail-head">
+            <div class="grid-size-control">
+              <select class="grid-select" id="gridPreset" aria-label="图纸规格" title="图纸规格">
+                <option value="auto" id="autoGridOption">自动识别</option>
+                <option value="52x52">52 × 52</option>
+                <option value="58x58">58 × 58</option>
+                <option value="64x64">64 × 64</option>
+                <option value="72x72">72 × 72</option>
+                <option value="78x78">78 × 78</option>
+                <option value="104x104">104 × 104</option>
+                <option value="52x64">52 × 64</option>
+                <option value="52x72">52 × 72</option>
+                <option value="58x72">58 × 72</option>
+                <option value="64x78">64 × 78</option>
+                <option value="72x104">72 × 104</option>
+                <option value="78x104">78 × 104</option>
+                <option value="64x52">64 × 52</option>
+                <option value="72x52">72 × 52</option>
+                <option value="72x58">72 × 58</option>
+                <option value="78x64">78 × 64</option>
+                <option value="104x72">104 × 72</option>
+                <option value="104x78">104 × 78</option>
+                <option value="custom">自定义…</option>
+              </select>
+              <div class="custom-grid hidden" id="customGrid">
+                <input class="grid-number" id="gridCols" type="number" min="8" max="300" inputmode="numeric" aria-label="横向格数" />
+                <span>×</span>
+                <input class="grid-number" id="gridRows" type="number" min="8" max="300" inputmode="numeric" aria-label="纵向格数" />
+                <button class="apply-grid" id="applyGrid" type="button">应用</button>
+              </div>
+            </div>
+            <select class="sort-select" id="paletteSort" aria-label="色号排序" title="色号排序">
+              <option value="code">按色号</option>
+              <option value="count">按数量</option>
+            </select>
+            <button class="utility-button" id="newPattern" aria-label="更换图纸" title="更换图纸">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17.5V6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5Z"></path><path d="m7 15 3.2-3.2 2.3 2.3 1.5-1.5 3 3"></path><circle cx="15.5" cy="8.5" r="1.2"></circle></svg>
+              <span>更换</span>
+            </button>
+            <button class="text-button small" id="showAll">清除高亮</button>
+            <details class="export-menu" id="exportMenu">
+              <summary>导出</summary>
+              <div class="export-popover">
+                <button id="exportOriginal" type="button">高清原图 PNG</button>
+                <button id="exportMirror" type="button">高清镜像图 PNG</button>
+                <button id="exportTxt" type="button">拼豆数量 TXT</button>
+              </div>
+            </details>
+            <div class="board-toolbar">
+              <div class="mirror-control">
+                <span class="tool-caption">镜像</span>
+                <button class="tool-button" id="mirrorButton" title="左右镜像图纸，色号保持正向" aria-label="左右镜像图纸，色号保持正向">⇆</button>
+              </div>
+              <button class="tool-button" id="zoomOut" title="缩小" aria-label="缩小">−</button>
+              <span class="zoom-label" id="zoomLabel">100%</span>
+              <button class="tool-button" id="zoomIn" title="放大" aria-label="放大">＋</button>
+            </div>
+          </div>
+          <div class="palette-list" id="paletteList"></div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="demo-dialog" id="demoDialog" aria-labelledby="demoDialogTitle">
+      <div class="demo-dialog-head">
+        <div>
+          <h2 id="demoDialogTitle">示例图纸</h2>
+          <p>选择一张真实图纸直接在画布中查看</p>
+        </div>
+        <button class="demo-close" id="closeDemo" type="button" aria-label="关闭示例图纸">×</button>
+      </div>
+      <div class="demo-grid">
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-52x52.png" data-demo-name="MARD_52x52_示例图纸.png" data-demo-grid="52x52">
+          <img src="./assets/examples/mard-52x52.png" alt="52乘52拼豆示例图纸" />
+          <span><strong>示例 01</strong><small>52 × 52</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-104x104-a.png" data-demo-name="MARD_104x104_示例图纸_A.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-104x104-a.png" alt="第一张104乘104拼豆示例图纸" />
+          <span><strong>示例 02</strong><small>104 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-104x104-b.png" data-demo-name="MARD_104x104_示例图纸_B.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-104x104-b.png" alt="第二张104乘104拼豆示例图纸" />
+          <span><strong>示例 03</strong><small>104 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-156x156.png" data-demo-name="MARD_156x156_示例图纸.png" data-demo-grid="156x156">
+          <img src="./assets/examples/mard-156x156.png" alt="156乘156拼豆示例图纸" />
+          <span><strong>示例 04</strong><small>156 × 156</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-104x104-c.png" data-demo-name="MARD_104x104_示例图纸_C.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-104x104-c.png" alt="第三张104乘104拼豆示例图纸" />
+          <span><strong>示例 05</strong><small>104 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-06-104x104.png" data-demo-name="MARD_104x104_示例图纸_D.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-example-06-104x104.png" alt="第四张104乘104拼豆示例图纸" />
+          <span><strong>示例 06</strong><small>104 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-07-104x73.png" data-demo-name="MARD_104x73_示例图纸.png" data-demo-grid="104x73">
+          <img src="./assets/examples/mard-example-07-104x73.png" alt="104乘73拼豆示例图纸" />
+          <span><strong>示例 07</strong><small>104 × 73</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-08-75x75.png" data-demo-name="MARD_75x75_示例图纸.png" data-demo-grid="75x75">
+          <img src="./assets/examples/mard-example-08-75x75.png" alt="75乘75拼豆示例图纸" />
+          <span><strong>示例 08</strong><small>75 × 75</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-09-104x104.png" data-demo-name="MARD_104x104_示例图纸_E.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-example-09-104x104.png" alt="第五张104乘104拼豆示例图纸" />
+          <span><strong>示例 09</strong><small>104 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-10-104x104.png" data-demo-name="MARD_104x104_示例图纸_F.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-example-10-104x104.png" alt="第六张104乘104拼豆示例图纸" />
+          <span><strong>示例 10</strong><small>104 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-11-145x145.png" data-demo-name="MARD_145x145_示例图纸.png" data-demo-grid="145x145">
+          <img src="./assets/examples/mard-example-11-145x145.png" alt="145乘145拼豆示例图纸" />
+          <span><strong>示例 11</strong><small>145 × 145</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-12-78x104.png" data-demo-name="MARD_78x104_示例图纸.png" data-demo-grid="78x104">
+          <img src="./assets/examples/mard-example-12-78x104.png" alt="78乘104拼豆示例图纸" />
+          <span><strong>示例 12</strong><small>78 × 104</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-13-64x64.png" data-demo-name="MARD_64x64_示例图纸.png" data-demo-grid="64x64">
+          <img src="./assets/examples/mard-example-13-64x64.png" alt="64乘64拼豆示例图纸" />
+          <span><strong>示例 13</strong><small>64 × 64</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-14-54x96.png" data-demo-name="MARD_54x96_示例图纸.png" data-demo-grid="54x96">
+          <img src="./assets/examples/mard-example-14-54x96.png" alt="54乘96拼豆示例图纸" />
+          <span><strong>示例 14</strong><small>54 × 96</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-15-90x160.png" data-demo-name="MARD_90x160_示例图纸.png" data-demo-grid="90x160">
+          <img src="./assets/examples/mard-example-15-90x160.png" alt="90乘160拼豆示例图纸" />
+          <span><strong>示例 15</strong><small>90 × 160</small></span>
+        </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-16-52x52.png" data-demo-name="MARD_52x52_示例图纸_B.png" data-demo-grid="52x52">
+          <img src="./assets/examples/mard-example-16-52x52.png" alt="第二张52乘52拼豆示例图纸" />
+          <span><strong>示例 16</strong><small>52 × 52</small></span>
+        </button>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app-board.js"></script>
+  </body>
+</html>
