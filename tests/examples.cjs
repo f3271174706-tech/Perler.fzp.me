@@ -102,8 +102,26 @@ const examples = [
   await page.locator("#uploadExamplePattern").click();
   const chooser = await chooserPromise;
   await chooser.setFiles(path.resolve(__dirname, "../assets/demo-pattern.png"));
+  await page.locator("#alignmentDialog").waitFor({ state: "visible" });
+  await page.waitForFunction(() => !document.querySelector("#alignmentConfidence")?.classList.contains("scanning"));
+  const exampleUsesCalibration = await page.evaluate(() =>
+    document.querySelector(".alignment-step")?.textContent.includes("上传示例图纸") &&
+    document.querySelector("#confirmAlignment")?.textContent.includes("添加示例") &&
+    alignmentCols.value === "52" && alignmentRows.value === "52"
+  );
+  await page.locator("#cancelAlignment").click();
+  const cancelDoesNotSave = await page.locator("#startGallery .demo-card").count() === 17;
+
+  const confirmChooserPromise = page.waitForEvent("filechooser");
+  await page.locator("#uploadExamplePattern").click();
+  const confirmChooser = await confirmChooserPromise;
+  await confirmChooser.setFiles(path.resolve(__dirname, "../assets/demo-pattern.png"));
+  await page.locator("#alignmentDialog").waitFor({ state: "visible" });
+  await page.waitForFunction(() => !document.querySelector("#alignmentConfidence")?.classList.contains("scanning"));
+  await page.locator("#confirmAlignment").click();
   await page.waitForFunction(() => document.querySelectorAll("#startGallery .demo-card").length === 18);
-  const uploadedExampleAdded = await page.locator("#startGallery .demo-card").last().evaluate(card => card.textContent.includes("示例 18") && card.textContent.includes("自动识别"));
+  await page.waitForFunction(() => !document.querySelector("#alignmentDialog")?.open, null, { timeout: 30000 });
+  const uploadedExampleAdded = await page.locator("#startGallery .demo-card").last().evaluate(card => card.textContent.includes("示例 18") && card.textContent.includes("52 × 52"));
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForFunction(() => document.querySelectorAll("#startGallery .demo-card").length === 18);
   const uploadedExamplePersisted = await page.locator("#startGallery .demo-card").last().evaluate(card => card.dataset.demoName === "demo-pattern.png");
@@ -198,6 +216,8 @@ const examples = [
     uploadHiddenBeforeAdmin,
     adminKeyNotExposed,
     adminState,
+    exampleUsesCalibration,
+    cancelDoesNotSave,
     uploadedExampleAdded,
     uploadedExamplePersisted,
     adminControlsCount,
@@ -216,7 +236,7 @@ const examples = [
   console.log(JSON.stringify(result));
   await browser.close();
 
-  const failed = errors.length || ipadErrors.length || !desktopAddButtonVisible || !uploadHiddenBeforeAdmin || !adminKeyNotExposed || !adminState.iconOnly || !adminState.pressed || !adminState.uploadBelowAdd || !adminState.uploadFullyVisible || !uploadedExampleAdded || !uploadedExamplePersisted || adminControlsCount !== 18 || !uploadedExampleReordered || !uploadedOrderPersisted || !uploadedExampleDeleted || !builtinExampleDeleted || !ipadPickerFits || !ipadTouchReorder || !ipadAddButton.visible || !ipadAddButton.white || !ipadAddButton.rounded || !result.galleryVisible || results.some((item, index) =>
+  const failed = errors.length || ipadErrors.length || !desktopAddButtonVisible || !uploadHiddenBeforeAdmin || !adminKeyNotExposed || !adminState.iconOnly || !adminState.pressed || !adminState.uploadBelowAdd || !adminState.uploadFullyVisible || !exampleUsesCalibration || !cancelDoesNotSave || !uploadedExampleAdded || !uploadedExamplePersisted || adminControlsCount !== 18 || !uploadedExampleReordered || !uploadedOrderPersisted || !uploadedExampleDeleted || !builtinExampleDeleted || !ipadPickerFits || !ipadTouchReorder || !ipadAddButton.visible || !ipadAddButton.white || !ipadAddButton.rounded || !result.galleryVisible || results.some((item, index) =>
     item.cardCount !== examples.length || item.grid !== examples[index].grid ||
     item.name !== examples[index].name || item.paletteItems < 1
   );

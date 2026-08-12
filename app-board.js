@@ -104,12 +104,12 @@ async function ensurePalette() {
   return state.palettePromise;
 }
 
-function acceptFile(file) {
+function acceptFile(file, purpose = "pattern") {
   if (!file || !file.type.startsWith("image/")) return toast("请选择 PNG、JPG 或 WEBP 图片");
   const reader = new FileReader();
   reader.onload = () => {
     const image = new Image();
-    image.onload = () => openAlignment(image, file.name);
+    image.onload = () => openAlignment(image, file.name, purpose);
     image.onerror = () => toast("图片读取失败");
     image.src = reader.result;
   };
@@ -541,16 +541,18 @@ async function runAutoAlignment() {
   if (state.alignment === alignment) applyDetectedAlignment();
 }
 
-function openAlignment(image, filename) {
+function openAlignment(image, filename, purpose = "pattern") {
   const fallback = fallbackGridSuggestion(image);
   state.alignment = {
     image, filename, left: 0, top: 0, right: image.naturalWidth, bottom: image.naturalHeight,
     cols: fallback.cols, rows: fallback.rows, detected: null, active: "red", pointer: null,
-    manual: false, processing: false
+    manual: false, processing: false, purpose
   };
   resetCellCalibration(state.alignment);
   setAlignmentProcessing(false);
   setActiveCrosshair("red");
+  document.querySelector(".alignment-step").textContent = purpose === "example" ? "上传示例图纸 · 校准网格" : "添加图纸 · 校准网格";
+  $("confirmAlignment").textContent = purpose === "example" ? "确认识别并添加示例" : "确认并开始识别";
   $("alignmentDetection").textContent = "正在定位网格…";
   const badge = $("alignmentConfidence"); badge.className = "confidence-badge scanning"; badge.textContent = "检测中";
   syncAlignmentPreset(true);
@@ -671,6 +673,7 @@ function closeAlignment() {
   if (els.alignmentDialog.open) els.alignmentDialog.close();
   state.alignment = null;
   els.file.value = "";
+  $("exampleFileInput").value = "";
 }
 
 async function cropAlignmentImage(alignment) {
@@ -683,7 +686,7 @@ async function cropAlignmentImage(alignment) {
   try {
     await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error("裁剪图读取失败")); image.src = source; });
   } finally { URL.revokeObjectURL(source); }
-  return image;
+  return { image, blob };
 }
 
 async function confirmAlignment() {
@@ -693,7 +696,7 @@ async function confirmAlignment() {
   if (width / alignment.cols < 3 || height / alignment.rows < 3) return toast("单格像素过小，请检查规格或扩大裁剪区域", 3500);
   setAlignmentProcessing(true); setAlignmentProgress(.02, "正在生成高清裁剪图纸…");
   try {
-    const image = await cropAlignmentImage(alignment);
+    const { image, blob } = await cropAlignmentImage(alignment);
     const grid = {
       left: 0, top: 0, right: image.naturalWidth, bottom: image.naturalHeight,
       cols: alignment.cols, rows: alignment.rows,
@@ -702,9 +705,13 @@ async function confirmAlignment() {
     };
     const success = await loadImage(image, alignment.filename, null, grid, setAlignmentProgress);
     if (!success) { setAlignmentProcessing(false); return; }
+    if (alignment.purpose === "example") {
+      setAlignmentProgress(.99, "正在保存到示例图库…");
+      await saveCalibratedExample(blob, alignment.filename, `${alignment.cols}x${alignment.rows}`);
+    }
     await new Promise(resolve => setTimeout(resolve, 180));
     if (els.alignmentDialog.open) els.alignmentDialog.close();
-    state.alignment = null; els.file.value = "";
+    state.alignment = null; els.file.value = ""; $("exampleFileInput").value = "";
   } catch (error) {
     console.error(error); toast(error.message || "图纸校准失败", 3500); setAlignmentProcessing(false);
   }
@@ -1031,6 +1038,18 @@ function mountStartGallery() {
   const dialog = $("demoDialog"), target = $("startGallery"), grid = dialog?.querySelector(".demo-grid");
   if (target && grid) target.appendChild(grid);
   dialog?.remove();
+}
+
+function showStartGallery(focusShell = null) {
+  els.empty.classList.remove("hidden");
+  els.canvas.classList.add("hidden");
+  els.stage.classList.remove("has-image");
+  els.boardPanel.classList.remove("has-image");
+  els.imageCard.classList.add("hidden");
+  els.paletteSection.classList.add("hidden");
+  els.selectionRow.classList.add("hidden");
+  els.current.classList.add("hidden");
+  if (focusShell) requestAnimationFrame(() => focusShell.scrollIntoView({ behavior: "smooth", block: "nearest" }));
 }
 
 function readStoredList(key) {
@@ -1379,23 +1398,23 @@ async function verifyAdminKey(event) {
   }
 }
 
-async function addUploadedExample(file) {
-  if (!file || !file.type.startsWith("image/")) return toast("请选择 PNG、JPG 或 WEBP 图片");
+async function saveCalibratedExample(blob, filename, gridSpec) {
   const grid = exampleGrid(), uploadButton = $("uploadExamplePattern");
   if (!grid) return toast("示例图库不可用");
   uploadButton.disabled = true;
   uploadButton.textContent = "正在保存…";
   try {
     const id = `uploaded:${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
-    const record = { id, name: file.name, type: file.type, blob: file, gridSpec: "", createdAt: Date.now() };
+    const normalizedName = filename.replace(/\.[^.]+$/, "") + ".png";
+    const record = { id, name: normalizedName, type: "image/png", blob, gridSpec, createdAt: Date.now() };
     await storeUploadedExample(record);
     navigator.storage?.persist?.().catch(() => {});
     const shell = createUploadedExampleCard(record);
     grid.appendChild(shell);
     refreshExampleNumbers();
     saveExampleOrder();
-    shell.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    toast("示例图纸已保存，刷新页面后仍会保留", 3200);
+    showStartGallery(shell);
+    toast(`示例图纸已按 ${gridSpec.replace("x", "×")} 保存`, 3200);
   } catch (error) {
     console.error(error);
     toast("示例图纸保存失败，请检查浏览器存储空间", 4200);
@@ -1403,6 +1422,12 @@ async function addUploadedExample(file) {
     uploadButton.disabled = false;
     uploadButton.textContent = "上传示例图纸";
   }
+}
+
+function addUploadedExample(file) {
+  if (!state.adminMode) return toast("请先开启管理员模式");
+  renewAdminSession();
+  acceptFile(file, "example");
 }
 
 function loadDemoPattern(source, filename, gridSpec) {
@@ -1435,7 +1460,7 @@ $("adminKeyDialog").onclose = () => {
   $("adminKeyError").classList.add("hidden");
 };
 $("uploadExamplePattern").onclick = () => $("exampleFileInput").click();
-$("exampleFileInput").onchange = event => { const file = event.target.files[0]; event.target.value = ""; addUploadedExample(file); };
+$("exampleFileInput").onchange = event => addUploadedExample(event.target.files[0]);
 $("newPattern").onclick = () => els.file.click(); els.file.onchange = event => acceptFile(event.target.files[0]);
 window.addEventListener("beforeunload", () => state.uploadedExampleUrls.forEach(source => URL.revokeObjectURL(source)));
 document.addEventListener("pointerdown", () => renewAdminSession(), { passive: true });
