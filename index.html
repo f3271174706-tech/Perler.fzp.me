@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f7f4ee" />
     <title>智能拼豆板</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23111%22/><circle cx=%2216%22 cy=%2216%22 r=%227%22 fill=%22white%22/></svg>" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260812-2" />
   </head>
   <body>
     <main class="app-shell">
@@ -114,6 +114,129 @@
       </section>
     </main>
 
+    <dialog class="admin-key-dialog" id="adminKeyDialog" aria-labelledby="adminKeyTitle">
+      <form class="admin-key-form" id="adminKeyForm">
+        <div class="admin-key-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.6-2.8 8-7 10-4.2-2-7-5.4-7-10V6l7-3Z"></path><path d="M9.5 12h5M12 9.5v5"></path></svg>
+        </div>
+        <h2 id="adminKeyTitle">管理员验证</h2>
+        <p>输入管理员密钥后才能上传、排序或删除示例图纸。</p>
+        <label for="adminKeyInput">管理员密钥</label>
+        <input id="adminKeyInput" type="password" autocomplete="current-password" spellcheck="false" required />
+        <p class="admin-key-error hidden" id="adminKeyError" role="alert">密钥不正确，请重新输入</p>
+        <div class="admin-key-actions">
+          <button class="secondary-action" id="cancelAdminKey" type="button">取消</button>
+          <button class="primary-action" id="adminKeySubmit" type="submit">确认</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="alignment-dialog" id="alignmentDialog" aria-labelledby="alignmentTitle">
+      <div class="alignment-shell">
+        <header class="alignment-head">
+          <div>
+            <p class="alignment-step">添加图纸 · 校准网格</p>
+            <h2 id="alignmentTitle">确认整体范围与单格大小</h2>
+            <p>红蓝准心确定整张图纸边界，绿黄准心框住一个完整网格，请检查预览线是否与原图重合。</p>
+          </div>
+          <button class="alignment-close" id="cancelAlignmentTop" type="button" aria-label="取消添加图纸">×</button>
+        </header>
+
+        <div class="alignment-content" id="alignmentContent">
+          <section class="alignment-preview-panel" aria-label="网格校准预览">
+            <div class="alignment-preview-stage" id="alignmentPreviewStage">
+              <div class="alignment-canvas-wrap" id="alignmentCanvasWrap">
+                <canvas id="alignmentCanvas" aria-label="待识别图纸与校准网格"></canvas>
+                <button class="crosshair-handle crosshair-red active" id="redCrosshair" type="button" aria-label="红色准心，裁剪区域左上角" title="红色准心：左上角"></button>
+                <button class="crosshair-handle crosshair-blue" id="blueCrosshair" type="button" aria-label="蓝色准心，裁剪区域右下角" title="蓝色准心：右下角"></button>
+                <button class="crosshair-handle crosshair-green" id="greenCrosshair" type="button" aria-label="绿色准心，单个网格左上角" title="绿色准心：单格左上角"></button>
+                <button class="crosshair-handle crosshair-yellow" id="yellowCrosshair" type="button" aria-label="黄色准心，单个网格右下角" title="黄色准心：单格右下角"></button>
+              </div>
+            </div>
+            <div class="crosshair-legend" aria-label="准心说明">
+              <span><i class="legend-dot red"></i>红色准心：整体左上角</span>
+              <span><i class="legend-dot blue"></i>蓝色准心：整体右下角</span>
+              <span><i class="legend-dot green"></i>绿色准心：单格左上角</span>
+              <span><i class="legend-dot yellow"></i>黄色准心：单格右下角</span>
+              <span class="alignment-hint">先定整体，再用绿黄框住一格；方向键可逐像素微调</span>
+            </div>
+          </section>
+
+          <aside class="alignment-controls">
+            <div class="alignment-auto-card">
+              <div>
+                <span>自动检测</span>
+                <strong id="alignmentDetection">正在定位网格…</strong>
+              </div>
+              <span class="confidence-badge scanning" id="alignmentConfidence">检测中</span>
+            </div>
+
+            <div class="alignment-field">
+              <label for="alignmentPreset">图纸规格</label>
+              <select id="alignmentPreset">
+                <option value="auto">自动建议</option>
+                <option value="52x52">52 × 52</option>
+                <option value="58x58">58 × 58</option>
+                <option value="64x64">64 × 64</option>
+                <option value="72x72">72 × 72</option>
+                <option value="78x78">78 × 78</option>
+                <option value="104x104">104 × 104</option>
+                <option value="156x156">156 × 156</option>
+                <option value="96x54">96 × 54</option>
+                <option value="104x73">104 × 73</option>
+                <option value="104x78">104 × 78</option>
+                <option value="160x90">160 × 90</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+
+            <div class="alignment-grid-fields">
+              <label>横向格数<input id="alignmentCols" type="number" min="8" max="300" value="52" inputmode="numeric" /></label>
+              <span>×</span>
+              <label>纵向格数<input id="alignmentRows" type="number" min="8" max="300" value="52" inputmode="numeric" /></label>
+            </div>
+
+            <div class="alignment-summary">
+              <span>裁剪后分辨率</span>
+              <strong id="alignmentCropSize">—</strong>
+              <small id="alignmentCellSize">—</small>
+            </div>
+
+            <div class="nudge-control">
+              <div class="nudge-target" role="group" aria-label="选择要微调的准心">
+                <button class="active red" id="selectRedCrosshair" type="button">红 · 整体左上</button>
+                <button class="blue" id="selectBlueCrosshair" type="button">蓝 · 整体右下</button>
+                <button class="green" id="selectGreenCrosshair" type="button">绿 · 单格左上</button>
+                <button class="yellow" id="selectYellowCrosshair" type="button">黄 · 单格右下</button>
+              </div>
+              <div class="nudge-pad" aria-label="逐像素微调准心">
+                <button data-nudge-y="-1" type="button" aria-label="向上移动一像素">↑</button>
+                <button data-nudge-x="-1" type="button" aria-label="向左移动一像素">←</button>
+                <button data-nudge-y="1" type="button" aria-label="向下移动一像素">↓</button>
+                <button data-nudge-x="1" type="button" aria-label="向右移动一像素">→</button>
+              </div>
+            </div>
+
+            <button class="alignment-reset" id="resetAlignment" type="button">重新自动定位</button>
+          </aside>
+        </div>
+
+        <div class="alignment-processing hidden" id="alignmentProcessing" role="status" aria-live="polite">
+          <div class="processing-spinner" aria-hidden="true"></div>
+          <h3>正在本地识别图纸</h3>
+          <p id="alignmentProgressText">正在准备高清图纸…</p>
+          <div class="progress-track" aria-hidden="true"><span id="alignmentProgressBar"></span></div>
+          <strong id="alignmentProgressValue">0%</strong>
+          <small>识别全部在本机完成，不会上传图纸。大规格图纸可能需要约 60 秒。</small>
+        </div>
+
+        <footer class="alignment-actions" id="alignmentActions">
+          <button class="secondary-action" id="cancelAlignment" type="button">取消</button>
+          <button class="primary-action" id="confirmAlignment" type="button">确认并开始识别</button>
+        </footer>
+      </div>
+    </dialog>
+
     <dialog class="demo-dialog" id="demoDialog" aria-labelledby="demoDialogTitle">
       <div class="demo-dialog-head">
         <div>
@@ -187,10 +310,14 @@
           <img src="./assets/examples/mard-example-16-52x52.png" alt="第二张52乘52拼豆示例图纸" />
           <span><strong>示例 16</strong><small>52 × 52</small></span>
         </button>
+        <button class="demo-card" type="button" data-demo-src="./assets/examples/mard-example-17-104x104.png" data-demo-name="MARD_104x104_示例图纸_G.png" data-demo-grid="104x104">
+          <img src="./assets/examples/mard-example-17-104x104.png" alt="第七张104乘104拼豆示例图纸" />
+          <span><strong>示例 17</strong><small>104 × 104</small></span>
+        </button>
       </div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="./app-board.js"></script>
+    <script src="./app-board.js?v=20260812-2"></script>
   </body>
 </html>

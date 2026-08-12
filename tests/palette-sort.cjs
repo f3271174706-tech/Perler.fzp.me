@@ -15,7 +15,6 @@ const os = require("os");
   });
 
   await page.goto("http://127.0.0.1:4173/?test=palette-sort", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "示例图纸" }).click();
   await page.locator(".demo-card").nth(2).click();
   await page.waitForFunction(() => document.querySelector("#gridSize")?.textContent === "104 × 104", null, { timeout: 30000 });
 

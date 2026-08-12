@@ -1,0 +1,33 @@
+[Unit]
+Description=Cloudflare Tunnel for perler.cloud
+After=network-online.target perler-cloud.service
+Wants=network-online.target
+Requires=perler-cloud.service
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config /etc/cloudflared/perler-cloud.yml tunnel run
+Restart=always
+RestartSec=5s
+TimeoutStopSec=20s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

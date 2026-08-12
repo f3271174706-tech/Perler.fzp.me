@@ -26,6 +26,10 @@ if (!imagePath || !expectedCols || !expectedRows) {
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   const startedAt = Date.now();
   await page.locator("#fileInput").setInputFiles(path.resolve(imagePath));
+  await page.locator("#alignmentDialog").waitFor({ state: "visible" });
+  await page.waitForFunction(() => !document.querySelector("#alignmentConfidence")?.classList.contains("scanning"), null, { timeout: 30000 });
+  const autoSuggestion = await page.evaluate(() => ({ cols: Number(alignmentCols.value), rows: Number(alignmentRows.value), confidence: alignmentConfidence.textContent, crop: alignmentCropSize.textContent }));
+  await page.locator("#confirmAlignment").click();
   await page.waitForFunction(() => state.analysisBusy === false && state.used.length > 0, null, { timeout: 30000 });
 
   const result = await page.evaluate(() => {
@@ -118,6 +122,7 @@ if (!imagePath || !expectedCols || !expectedRows) {
   });
   });
   result.elapsedMs = Date.now() - startedAt;
+  result.autoSuggestion = autoSuggestion;
   result.errors = errors;
   result.url = page.url();
   result.title = await page.title();
@@ -126,5 +131,5 @@ if (!imagePath || !expectedCols || !expectedRows) {
 
   console.log(JSON.stringify(result));
   await browser.close();
-  if (!result.grid || result.grid.cols !== expectedCols || result.grid.rows !== expectedRows || errors.length) process.exit(1);
+  if (!result.grid || autoSuggestion.cols !== expectedCols || autoSuggestion.rows !== expectedRows || result.grid.cols !== expectedCols || result.grid.rows !== expectedRows || errors.length) process.exit(1);
 })();

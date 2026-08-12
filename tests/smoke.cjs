@@ -17,13 +17,25 @@ const path = require("path");
     return !document.querySelector("#welcomePanel") &&
       document.querySelector("#addPattern")?.textContent.trim() === "添加图纸" &&
       document.querySelector("#startGallery")?.offsetParent !== null &&
-      document.querySelectorAll("#startGallery .demo-card").length === 16 && stage.height >= innerHeight - 50;
+      document.querySelectorAll("#startGallery .demo-card").length === 17 && stage.height >= innerHeight - 50;
   });
   await page.screenshot({ path: path.join(__dirname, "empty-canvas.png"), fullPage: true });
   const fileChooserPromise = page.waitForEvent("filechooser");
   await page.locator("#addPattern").click();
   const fileChooser = await fileChooserPromise;
   await fileChooser.setFiles(path.resolve(__dirname, "../assets/demo-pattern.png"));
+  await page.locator("#alignmentDialog").waitFor({ state: "visible" });
+  await page.waitForFunction(() => !document.querySelector("#alignmentConfidence")?.classList.contains("scanning"));
+  const alignmentAuto = await page.evaluate(() =>
+    document.querySelector("#alignmentCols")?.value === "52" &&
+    document.querySelector("#alignmentRows")?.value === "52" &&
+    document.querySelector("#redCrosshair")?.offsetParent !== null &&
+    document.querySelector("#blueCrosshair")?.offsetParent !== null &&
+    document.querySelector("#greenCrosshair")?.offsetParent !== null &&
+    document.querySelector("#yellowCrosshair")?.offsetParent !== null &&
+    document.querySelector("#alignmentCellSize")?.textContent.includes("40.0 × 40.0 px")
+  );
+  await page.locator("#confirmAlignment").click();
   await page.locator("#beadCanvas").waitFor({ state: "visible" });
   await page.locator("#paletteList .palette-item").first().waitFor();
   await page.waitForFunction(() => document.querySelector("#gridSize")?.textContent === "52 × 52");
@@ -140,6 +152,7 @@ const path = require("path");
   const result = {
     title: await page.title(),
     directCanvasEntry,
+    alignmentAuto,
     paletteItems: await page.locator("#paletteList .palette-item").count(),
     selectedColors: await page.locator("#paletteList .palette-item.active").count(),
     dimmingApplied: focusedMean > initialMean * 1.05,
@@ -180,5 +193,5 @@ const path = require("path");
   result.desktopErrors = desktopErrors;
   console.log(JSON.stringify(result));
   await browser.close();
-  if (!result.directCanvasEntry || !result.paletteAlphabetical || !result.mirrorCellMapping || !result.mirrorTextForward || !result.mirrorFocusMapping || !result.canvasVisible || !result.originalResolution || !result.verticalLayout || !result.paletteTextIsMinimal || !result.highlightedSummary || !result.otherColorAndCodeHidden || result.gridSize !== "52 × 52" || result.initialZoom !== "100%" || !result.fittedAt100 || !result.adaptiveStage || result.minimumZoom !== "75%" || !result.containedAt75 || !result.coversAt150 || !result.stageStable || result.selectedColors !== 2 || !result.dimmingApplied || !result.paletteItems || errors.length || consoleProblems.length || desktopErrors.length) process.exit(1);
+  if (!result.directCanvasEntry || !result.alignmentAuto || !result.paletteAlphabetical || !result.mirrorCellMapping || !result.mirrorTextForward || !result.mirrorFocusMapping || !result.canvasVisible || !result.originalResolution || !result.verticalLayout || !result.paletteTextIsMinimal || !result.highlightedSummary || !result.otherColorAndCodeHidden || result.gridSize !== "52 × 52" || result.initialZoom !== "100%" || !result.fittedAt100 || !result.adaptiveStage || result.minimumZoom !== "75%" || !result.containedAt75 || !result.coversAt150 || !result.stageStable || result.selectedColors !== 2 || !result.dimmingApplied || !result.paletteItems || errors.length || consoleProblems.length || desktopErrors.length) process.exit(1);
 })();

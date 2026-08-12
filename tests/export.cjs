@@ -28,7 +28,6 @@ function sha256(filename) {
   });
 
   await page.goto("http://127.0.0.1:4173/?test=export", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "示例图纸" }).click();
   await page.locator(".demo-card").nth(sampleIndex).click();
   await page.waitForFunction(() => state.analysisBusy === false && state.grid && state.used.length > 0, null, { timeout: 30000 });
 

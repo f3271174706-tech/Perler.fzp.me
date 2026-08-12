@@ -1,0 +1,7 @@
+tunnel: aaa7d262-f778-4569-9b87-bb7f13d24ee7
+credentials-file: /etc/cloudflared/perler-cloud.json
+
+ingress:
+  - hostname: perler.cloud
+    service: http://127.0.0.1:18040
+  - service: http_status:404

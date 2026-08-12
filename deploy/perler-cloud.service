@@ -1,0 +1,32 @@
+[Unit]
+Description=perler.cloud static web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=perler-cloud
+Group=perler-cloud
+WorkingDirectory=/opt/perler-cloud/current
+ExecStart=/usr/bin/python3 -m http.server 18040 --bind 127.0.0.1 --directory /opt/perler-cloud/current
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=128M
+MemoryMax=192M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
