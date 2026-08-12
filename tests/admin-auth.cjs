@@ -31,16 +31,21 @@ if (!adminKey) throw new Error("PERLER_ADMIN_KEY is required");
   await page.locator("#adminKeySubmit").click();
   await page.waitForFunction(() => document.querySelector("#adminModeButton")?.getAttribute("aria-pressed") === "true");
   const correctKeyAccepted = await upload.isVisible();
+  const cookieIssued = (await page.context().cookies(new URL(baseUrl).origin)).find(cookie => cookie.name === "perler_admin_session");
+  const sevenDayCookie = cookieIssued && cookieIssued.expires > Date.now() / 1000 + 7 * 24 * 60 * 60 - 120;
+  await page.reload({ waitUntil: "networkidle" });
+  const restoredWithoutKey = await button.getAttribute("aria-pressed") === "true" && await upload.isVisible();
 
-  const source = await (await page.request.get(new URL("app-board.js?v=20260812-1", baseUrl).href)).text();
+  const source = await (await page.request.get(new URL("app-board.js?v=20260812-3", baseUrl).href)).text();
   const keyNotExposed = !source.includes(adminKey);
   await button.click();
   const closesWithoutKey = await button.getAttribute("aria-pressed") === "false" && await upload.isHidden();
+  const cookieCleared = !(await page.context().cookies(new URL(baseUrl).origin)).some(cookie => cookie.name === "perler_admin_session");
 
-  const result = { baseUrl, passwordMasked, wrongKeyRejected, correctKeyAccepted, keyNotExposed, closesWithoutKey, errors };
+  const result = { baseUrl, passwordMasked, wrongKeyRejected, correctKeyAccepted, sevenDayCookie, restoredWithoutKey, keyNotExposed, closesWithoutKey, cookieCleared, errors };
   console.log(JSON.stringify(result));
   await browser.close();
-  if (!passwordMasked || !wrongKeyRejected || !correctKeyAccepted || !keyNotExposed || !closesWithoutKey || errors.length) process.exit(1);
+  if (!passwordMasked || !wrongKeyRejected || !correctKeyAccepted || !sevenDayCookie || !restoredWithoutKey || !keyNotExposed || !closesWithoutKey || !cookieCleared || errors.length) process.exit(1);
 })().catch(error => {
   console.error(error);
   process.exit(1);

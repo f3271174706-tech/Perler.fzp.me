@@ -7,6 +7,7 @@ const adminKey = process.env.PERLER_ADMIN_KEY;
 if (!adminKey) throw new Error("PERLER_ADMIN_KEY is required");
 
 async function enableAdminMode(page, verifyWrongKey = false) {
+  if (await page.locator("#adminModeButton").getAttribute("aria-pressed") === "true") return;
   await page.locator("#adminModeButton").click();
   await page.locator("#adminKeyDialog").waitFor({ state: "visible" });
   if (verifyWrongKey) {

@@ -15,6 +15,10 @@ const EXAMPLE_DB_STORE = "examples";
 const EXAMPLE_ORDER_KEY = "perler.example-order.v1";
 const EXAMPLE_HIDDEN_KEY = "perler.hidden-builtins.v1";
 const ADMIN_KEY_SHA256 = "4e6cd9d2836665480af693cea22109de0fce692b1739f1392dcd3df86b57f36e";
+const ADMIN_SESSION_COOKIE = "perler_admin_session";
+const ADMIN_SESSION_VERSION = "v1";
+const ADMIN_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const ADMIN_SESSION_RENEW_THROTTLE_MS = 60 * 1000;
 // Screen colors used by this numbered-sheet renderer differ from the generic
 // MARD chart.  The printed labels are authoritative; these anchors were read
 // from labelled cells and are enabled only when the sheet signature matches.
@@ -38,7 +42,8 @@ const state = {
   image: null, name: "", mard: [], used: [], selected: new Set(), original: null,
   grid: null, fallbackGroups: null, mirroredBase: null, zoom: 1, mirrored: false, x: 0, y: 0,
   dragging: false, renderToken: 0, palettePromise: null, analysisBusy: false,
-  adminMode: false, uploadedExampleUrls: new Map(), exampleDbPromise: null,
+  adminMode: false, adminSessionExpiresAt: 0, adminSessionRenewedAt: 0,
+  uploadedExampleUrls: new Map(), exampleDbPromise: null,
   examplePointerDrag: null, alignment: null, sheetColorProfile: null
 };
 const els = {
@@ -1284,6 +1289,57 @@ function setAdminMode(enabled, announce = true) {
   if (announce) toast(enabled ? "管理员模式已开启，可拖动排序或删除" : "管理员模式已关闭");
 }
 
+function adminSessionCookieSuffix(maxAge, expiresAt) {
+  const secure = location.protocol === "https:" ? "; Secure" : "";
+  return `; Path=/; Max-Age=${maxAge}; Expires=${new Date(expiresAt).toUTCString()}; SameSite=Strict${secure}`;
+}
+
+function readAdminSessionExpiry() {
+  const prefix = `${ADMIN_SESSION_COOKIE}=`;
+  const raw = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith(prefix));
+  if (!raw) return 0;
+  const match = decodeURIComponent(raw.slice(prefix.length)).match(/^v1\.(\d+)$/);
+  if (!match) return 0;
+  const expiresAt = Number(match[1]), now = Date.now();
+  const maximum = now + ADMIN_SESSION_MAX_AGE_SECONDS * 1000 + 5 * 60 * 1000;
+  return Number.isFinite(expiresAt) && expiresAt > now && expiresAt <= maximum ? expiresAt : 0;
+}
+
+function clearAdminSession() {
+  document.cookie = `${ADMIN_SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict${location.protocol === "https:" ? "; Secure" : ""}`;
+  state.adminSessionExpiresAt = 0;
+  state.adminSessionRenewedAt = 0;
+}
+
+function renewAdminSession(force = false) {
+  if (!state.adminMode) return false;
+  const now = Date.now();
+  if (state.adminSessionExpiresAt && now >= state.adminSessionExpiresAt) {
+    clearAdminSession();
+    setAdminMode(false, false);
+    toast("管理员登录已过期，请重新输入密钥", 3500);
+    return false;
+  }
+  if (!force && now - state.adminSessionRenewedAt < ADMIN_SESSION_RENEW_THROTTLE_MS) return true;
+  const expiresAt = now + ADMIN_SESSION_MAX_AGE_SECONDS * 1000;
+  const value = encodeURIComponent(`${ADMIN_SESSION_VERSION}.${expiresAt}`);
+  document.cookie = `${ADMIN_SESSION_COOKIE}=${value}${adminSessionCookieSuffix(ADMIN_SESSION_MAX_AGE_SECONDS, expiresAt)}`;
+  state.adminSessionExpiresAt = expiresAt;
+  state.adminSessionRenewedAt = now;
+  return true;
+}
+
+function restoreAdminSession() {
+  const expiresAt = readAdminSessionExpiry();
+  if (!expiresAt) {
+    clearAdminSession();
+    return false;
+  }
+  state.adminSessionExpiresAt = expiresAt;
+  setAdminMode(true, false);
+  return renewAdminSession(true);
+}
+
 async function sha256Hex(value) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -1313,6 +1369,8 @@ async function verifyAdminKey(event) {
     input.removeAttribute("aria-invalid");
     dialog.close();
     setAdminMode(true);
+    state.adminSessionExpiresAt = Date.now() + ADMIN_SESSION_MAX_AGE_SECONDS * 1000;
+    renewAdminSession(true);
   } catch (errorValue) {
     console.error(errorValue);
     toast("当前浏览器无法验证管理员密钥", 3500);
@@ -1361,9 +1419,14 @@ function loadDemoPattern(source, filename, gridSpec) {
 }
 
 mountStartGallery();
+restoreAdminSession();
 initializeExampleGallery().catch(error => { console.error(error); toast("已加载内置示例，但本地示例图库不可用", 4200); });
 $("addPattern").onclick = () => els.file.click();
-$("adminModeButton").onclick = () => state.adminMode ? setAdminMode(false) : openAdminKeyDialog();
+$("adminModeButton").onclick = () => {
+  if (!state.adminMode) return openAdminKeyDialog();
+  clearAdminSession();
+  setAdminMode(false);
+};
 $("adminKeyForm").onsubmit = verifyAdminKey;
 $("cancelAdminKey").onclick = () => $("adminKeyDialog").close();
 $("adminKeyDialog").onclose = () => {
@@ -1375,6 +1438,9 @@ $("uploadExamplePattern").onclick = () => $("exampleFileInput").click();
 $("exampleFileInput").onchange = event => { const file = event.target.files[0]; event.target.value = ""; addUploadedExample(file); };
 $("newPattern").onclick = () => els.file.click(); els.file.onchange = event => acceptFile(event.target.files[0]);
 window.addEventListener("beforeunload", () => state.uploadedExampleUrls.forEach(source => URL.revokeObjectURL(source)));
+document.addEventListener("pointerdown", () => renewAdminSession(), { passive: true });
+document.addEventListener("keydown", () => renewAdminSession());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) renewAdminSession(); });
 
 for (const kind of ["red", "blue", "green", "yellow"]) $(`${kind}Crosshair`).onpointerdown = event => handleCrosshairPointer(event, kind);
 for (const [id, kind] of [["redCrosshair", "red"], ["blueCrosshair", "blue"], ["greenCrosshair", "green"], ["yellowCrosshair", "yellow"]]) {
