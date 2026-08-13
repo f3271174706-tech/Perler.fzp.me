@@ -241,6 +241,23 @@ button { color: inherit; }
 .upload-example-button:hover { background: #333; border-color: #333; }
 .upload-example-button:disabled { opacity: .58; cursor: wait; }
 .upload-example-button:focus-visible { outline: 2px solid #111; outline-offset: 3px; }
+.example-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 14px 0 0;
+  padding: 13px 16px;
+  border: 1px solid #d8d8d8;
+  border-radius: 14px;
+  background: #fff;
+}
+.example-review > div:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.example-review strong { font-size: 14px; }
+.example-review span { color: #707070; font-size: 12px; line-height: 1.5; }
+.example-review-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.example-review-actions .text-button,
+.example-review-actions .upload-example-button { min-width: 112px; height: 42px; }
 .canvas-add-button:focus-visible,
 .canvas-demo-button:focus-visible { outline: 2px solid #111; outline-offset: 3px; }
 .demo-dialog {
@@ -356,6 +373,9 @@ body.dark .board-stage { background-color: #24221f; background-image: radial-gra
 body.dark #beadCanvas { box-shadow: 0 16px 42px rgba(0,0,0,.4); }
 
 @media (max-width: 760px) {
+  .example-review { align-items: stretch; flex-direction: column; gap: 10px; }
+  .example-review-actions { width: 100%; }
+  .example-review-actions button { flex: 1; }
   .topbar { height: 62px; padding: 0 16px; }
   .save-state { display: none; }
   .hero { min-height: calc(100vh - 62px); padding-top: 36px; }

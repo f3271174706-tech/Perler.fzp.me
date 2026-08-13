@@ -44,7 +44,7 @@ const state = {
   dragging: false, renderToken: 0, palettePromise: null, analysisBusy: false,
   adminMode: false, adminSessionExpiresAt: 0, adminSessionRenewedAt: 0,
   uploadedExampleUrls: new Map(), exampleDbPromise: null,
-  examplePointerDrag: null, alignment: null, sheetColorProfile: null
+  examplePointerDrag: null, alignment: null, pendingExample: null, sheetColorProfile: null
 };
 const els = {
   workspace: $("workspace"), drop: $("boardStage"), file: $("fileInput"),
@@ -106,6 +106,7 @@ async function ensurePalette() {
 
 function acceptFile(file, purpose = "pattern") {
   if (!file || !file.type.startsWith("image/")) return toast("请选择 PNG、JPG 或 WEBP 图片");
+  if (purpose !== "example") clearExampleReview();
   const reader = new FileReader();
   reader.onload = () => {
     const image = new Image();
@@ -552,7 +553,7 @@ function openAlignment(image, filename, purpose = "pattern") {
   setAlignmentProcessing(false);
   setActiveCrosshair("red");
   document.querySelector(".alignment-step").textContent = purpose === "example" ? "上传示例图纸 · 校准网格" : "添加图纸 · 校准网格";
-  $("confirmAlignment").textContent = purpose === "example" ? "确认识别并添加示例" : "确认并开始识别";
+  $("confirmAlignment").textContent = purpose === "example" ? "确认并开始本地识别" : "确认并开始识别";
   $("alignmentDetection").textContent = "正在定位网格…";
   const badge = $("alignmentConfidence"); badge.className = "confidence-badge scanning"; badge.textContent = "检测中";
   syncAlignmentPreset(true);
@@ -706,8 +707,10 @@ async function confirmAlignment() {
     const success = await loadImage(image, alignment.filename, null, grid, setAlignmentProgress);
     if (!success) { setAlignmentProcessing(false); return; }
     if (alignment.purpose === "example") {
-      setAlignmentProgress(.99, "正在保存到示例图库…");
-      await saveCalibratedExample(blob, alignment.filename, `${alignment.cols}x${alignment.rows}`);
+      state.pendingExample = { blob, filename: alignment.filename };
+      updateExampleReview();
+      $("exampleReview").classList.remove("hidden");
+      setAlignmentProgress(1, "本地识别完成，正在进入结果审查…");
     }
     await new Promise(resolve => setTimeout(resolve, 180));
     if (els.alignmentDialog.open) els.alignmentDialog.close();
@@ -997,6 +1000,7 @@ async function reanalyzeGrid(forcedSize = null) {
     if (!grid) throw new Error("未能定位规则网格边界");
     state.selected.clear(); state.grid = grid; state.mirroredBase = null; state.used = analyzeGridCells(grid);
     renderPalette(); renderFocus(); updateSummary(); updateGridReadout();
+    updateExampleReview();
     $("autoGridOption").textContent = `自动 · ${grid.cols}×${grid.rows}`;
     els.gridCols.value = grid.cols; els.gridRows.value = grid.rows;
     toast(`已应用 ${grid.cols}×${grid.rows} 规格，识别 ${state.used.length} 个 MARD 色号`);
@@ -1049,7 +1053,20 @@ function showStartGallery(focusShell = null) {
   els.paletteSection.classList.add("hidden");
   els.selectionRow.classList.add("hidden");
   els.current.classList.add("hidden");
+  $("exampleReview").classList.add("hidden");
   if (focusShell) requestAnimationFrame(() => focusShell.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+}
+
+function updateExampleReview() {
+  if (!state.pendingExample || !state.grid) return;
+  const beadCount = state.used.reduce((sum, color) => sum + color.count, 0);
+  $("exampleReviewSummary").textContent = `本地识别 ${state.grid.cols} × ${state.grid.rows} · ${state.used.length} 个色号 · ${beadCount} 颗，请核对后再加入`;
+}
+
+function clearExampleReview(showGallery = false) {
+  state.pendingExample = null;
+  $("exampleReview").classList.add("hidden");
+  if (showGallery) showStartGallery();
 }
 
 function readStoredList(key) {
@@ -1415,12 +1432,29 @@ async function saveCalibratedExample(blob, filename, gridSpec) {
     saveExampleOrder();
     showStartGallery(shell);
     toast(`示例图纸已按 ${gridSpec.replace("x", "×")} 保存`, 3200);
+    return shell;
   } catch (error) {
     console.error(error);
     toast("示例图纸保存失败，请检查浏览器存储空间", 4200);
+    return null;
   } finally {
     uploadButton.disabled = false;
     uploadButton.textContent = "上传示例图纸";
+  }
+}
+
+async function confirmPendingExample() {
+  if (!state.pendingExample || !state.grid || !state.used.length) return toast("没有可加入的识别结果");
+  if (!state.adminMode || !renewAdminSession()) return toast("管理员登录已过期，请重新开启管理员模式");
+  const button = $("confirmExampleReview");
+  button.disabled = true;
+  button.textContent = "正在保存…";
+  try {
+    const shell = await saveCalibratedExample(state.pendingExample.blob, state.pendingExample.filename, `${state.grid.cols}x${state.grid.rows}`);
+    if (shell) clearExampleReview();
+  } finally {
+    button.disabled = false;
+    button.textContent = "确认加入示例";
   }
 }
 
@@ -1461,6 +1495,8 @@ $("adminKeyDialog").onclose = () => {
 };
 $("uploadExamplePattern").onclick = () => $("exampleFileInput").click();
 $("exampleFileInput").onchange = event => addUploadedExample(event.target.files[0]);
+$("confirmExampleReview").onclick = confirmPendingExample;
+$("cancelExampleReview").onclick = () => { clearExampleReview(true); toast("已取消添加示例图纸"); };
 $("newPattern").onclick = () => els.file.click(); els.file.onchange = event => acceptFile(event.target.files[0]);
 window.addEventListener("beforeunload", () => state.uploadedExampleUrls.forEach(source => URL.revokeObjectURL(source)));
 document.addEventListener("pointerdown", () => renewAdminSession(), { passive: true });

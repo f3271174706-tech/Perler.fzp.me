@@ -106,7 +106,7 @@ const examples = [
   await page.waitForFunction(() => !document.querySelector("#alignmentConfidence")?.classList.contains("scanning"));
   const exampleUsesCalibration = await page.evaluate(() =>
     document.querySelector(".alignment-step")?.textContent.includes("上传示例图纸") &&
-    document.querySelector("#confirmAlignment")?.textContent.includes("添加示例") &&
+    document.querySelector("#confirmAlignment")?.textContent.includes("本地识别") &&
     alignmentCols.value === "52" && alignmentRows.value === "52"
   );
   await page.locator("#cancelAlignment").click();
@@ -119,8 +119,15 @@ const examples = [
   await page.locator("#alignmentDialog").waitFor({ state: "visible" });
   await page.waitForFunction(() => !document.querySelector("#alignmentConfidence")?.classList.contains("scanning"));
   await page.locator("#confirmAlignment").click();
-  await page.waitForFunction(() => document.querySelectorAll("#startGallery .demo-card").length === 18);
   await page.waitForFunction(() => !document.querySelector("#alignmentDialog")?.open, null, { timeout: 30000 });
+  await page.locator("#exampleReview").waitFor({ state: "visible" });
+  const exampleReviewShowsLocalRecognition = await page.evaluate(() =>
+    gridSize.textContent === "52 × 52" &&
+    document.querySelectorAll("#paletteList .palette-item").length > 0 &&
+    exampleReviewSummary.textContent.includes("本地识别 52 × 52")
+  );
+  await page.locator("#confirmExampleReview").click();
+  await page.waitForFunction(() => document.querySelectorAll("#startGallery .demo-card").length === 18);
   const uploadedExampleAdded = await page.locator("#startGallery .demo-card").last().evaluate(card => card.textContent.includes("示例 18") && card.textContent.includes("52 × 52"));
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForFunction(() => document.querySelectorAll("#startGallery .demo-card").length === 18);
@@ -218,6 +225,7 @@ const examples = [
     adminState,
     exampleUsesCalibration,
     cancelDoesNotSave,
+    exampleReviewShowsLocalRecognition,
     uploadedExampleAdded,
     uploadedExamplePersisted,
     adminControlsCount,
@@ -236,7 +244,7 @@ const examples = [
   console.log(JSON.stringify(result));
   await browser.close();
 
-  const failed = errors.length || ipadErrors.length || !desktopAddButtonVisible || !uploadHiddenBeforeAdmin || !adminKeyNotExposed || !adminState.iconOnly || !adminState.pressed || !adminState.uploadBelowAdd || !adminState.uploadFullyVisible || !exampleUsesCalibration || !cancelDoesNotSave || !uploadedExampleAdded || !uploadedExamplePersisted || adminControlsCount !== 18 || !uploadedExampleReordered || !uploadedOrderPersisted || !uploadedExampleDeleted || !builtinExampleDeleted || !ipadPickerFits || !ipadTouchReorder || !ipadAddButton.visible || !ipadAddButton.white || !ipadAddButton.rounded || !result.galleryVisible || results.some((item, index) =>
+  const failed = errors.length || ipadErrors.length || !desktopAddButtonVisible || !uploadHiddenBeforeAdmin || !adminKeyNotExposed || !adminState.iconOnly || !adminState.pressed || !adminState.uploadBelowAdd || !adminState.uploadFullyVisible || !exampleUsesCalibration || !cancelDoesNotSave || !exampleReviewShowsLocalRecognition || !uploadedExampleAdded || !uploadedExamplePersisted || adminControlsCount !== 18 || !uploadedExampleReordered || !uploadedOrderPersisted || !uploadedExampleDeleted || !builtinExampleDeleted || !ipadPickerFits || !ipadTouchReorder || !ipadAddButton.visible || !ipadAddButton.white || !ipadAddButton.rounded || !result.galleryVisible || results.some((item, index) =>
     item.cardCount !== examples.length || item.grid !== examples[index].grid ||
     item.name !== examples[index].name || item.paletteItems < 1
   );
