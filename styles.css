@@ -448,6 +448,10 @@ body.dark #beadCanvas { box-shadow: 0 16px 42px rgba(0,0,0,.4); }
   cursor: pointer;
 }
 .utility-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cell-edit-toggle.active { border-color: #111; background: #111; color: #fff; }
+.vertical-workspace .board-stage.editing-cells { cursor: cell; }
+.vertical-workspace .board-stage.editing-cells:active { cursor: cell; }
+.vertical-workspace .board-stage.editing-cells #beadCanvas { cursor: cell; }
 .vertical-workspace .palette-list {
   order: 1;
   min-width: 0;
@@ -575,6 +579,54 @@ body.dark #beadCanvas { box-shadow: 0 16px 42px rgba(0,0,0,.4); }
 .vertical-workspace .tool-button:disabled { opacity: .35; cursor: default; }
 .vertical-workspace .zoom-label { color: #333; }
 
+.cell-editor-dialog {
+  width: min(430px, calc(100vw - 24px));
+  padding: 0;
+  border: 1px solid #e3e3e3;
+  border-radius: 16px;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 24px 72px rgba(0,0,0,.18);
+}
+.cell-editor-dialog::backdrop { background: rgba(0,0,0,.28); backdrop-filter: blur(3px); }
+.cell-editor-form { display: flex; flex-direction: column; gap: 18px; padding: 24px; }
+.cell-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.cell-editor-head p { margin: 0 0 5px; color: #777; font-size: 12px; }
+.cell-editor-head h2 { margin: 0; font-size: 20px; letter-spacing: -.03em; }
+.cell-editor-close {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 22px;
+  cursor: pointer;
+}
+.cell-editor-current { display: flex; align-items: center; gap: 12px; padding: 13px; border: 1px solid #ededed; border-radius: 12px; }
+.cell-editor-current div { display: flex; flex-direction: column; gap: 3px; }
+.cell-editor-current small { color: #777; font-size: 11px; }
+.cell-editor-current strong { font-size: 15px; }
+.cell-editor-swatch { width: 42px; height: 42px; border: 1px solid rgba(0,0,0,.12); border-radius: 10px; background: #fff; }
+.cell-editor-field { display: flex; flex-direction: column; gap: 8px; }
+.cell-editor-field > span { color: #555; font-size: 12px; font-weight: 700; }
+.cell-editor-field input {
+  width: 100%;
+  height: 48px;
+  padding: 0 13px;
+  border: 1px solid #dcdcdc;
+  border-radius: 10px;
+  background: #fff;
+  color: #111;
+  font: 700 16px/1 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  text-transform: uppercase;
+}
+.cell-editor-field input:focus { border-color: #111; outline: 0; box-shadow: 0 0 0 3px rgba(0,0,0,.06); }
+.cell-editor-error { margin: -10px 0 0; color: #b42318; font-size: 12px; }
+.cell-editor-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.cell-editor-actions button { min-height: 44px; border-radius: 9px; font-weight: 700; cursor: pointer; }
+.cell-editor-actions .danger { color: #a22222; }
+
 .hero {
   min-height: 100vh;
   padding: 24px;
@@ -602,6 +654,9 @@ body.dark #beadCanvas { box-shadow: 0 16px 42px rgba(0,0,0,.4); }
   .vertical-workspace .palette-item .swatch { width: 25px; height: 25px; }
   .selection-row { min-height: 50px; }
   .vertical-workspace .current-color { position: static; }
+  .cell-edit-toggle { flex: 1 1 auto; justify-content: center; }
+  .cell-editor-form { padding: 20px; }
+  .cell-editor-actions { grid-template-columns: 1fr 1fr; }
 }
 
 /* iPad portrait and landscape: keep the full pattern and controls in the working viewport. */

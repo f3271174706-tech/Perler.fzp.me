@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f7f4ee" />
     <title>智能拼豆板</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23111%22/><circle cx=%2216%22 cy=%2216%22 r=%227%22 fill=%22white%22/></svg>" />
-    <link rel="stylesheet" href="./styles.css?v=20260813-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260818-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -102,6 +102,10 @@
               <span>更换</span>
             </button>
             <button class="text-button small" id="showAll">清除高亮</button>
+            <button class="utility-button cell-edit-toggle" id="editCellsButton" type="button" aria-label="编辑单格色号" title="轻点图纸中的任意格子修改色号" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.7-10.7a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"></path><path d="m14.5 6.7 2.8 2.8"></path></svg>
+              <span>编辑色号</span>
+            </button>
             <details class="export-menu" id="exportMenu">
               <summary>导出</summary>
               <div class="export-popover">
@@ -138,6 +142,34 @@
         <div class="admin-key-actions">
           <button class="secondary-action" id="cancelAdminKey" type="button">取消</button>
           <button class="primary-action" id="adminKeySubmit" type="submit">确认</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="cell-editor-dialog" id="cellEditorDialog" aria-labelledby="cellEditorTitle">
+      <form class="cell-editor-form" id="cellEditorForm">
+        <header class="cell-editor-head">
+          <div>
+            <p id="cellEditorPosition">第 1 行 · 第 1 列</p>
+            <h2 id="cellEditorTitle">编辑单格色号</h2>
+          </div>
+          <button class="cell-editor-close" id="cancelCellEditorTop" type="button" aria-label="关闭色号编辑">×</button>
+        </header>
+        <div class="cell-editor-current">
+          <span class="cell-editor-swatch" id="cellEditorSwatch" aria-hidden="true"></span>
+          <div><small>当前 / 将应用</small><strong id="cellEditorCode">空白</strong></div>
+        </div>
+        <label class="cell-editor-field" for="cellColorInput">
+          <span>MARD291 色号</span>
+          <input id="cellColorInput" list="mardColorOptions" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="输入或选择色号，如 A1" />
+        </label>
+        <datalist id="mardColorOptions"></datalist>
+        <p class="cell-editor-error hidden" id="cellEditorError" role="alert">请输入有效的 MARD291 色号</p>
+        <div class="cell-editor-actions">
+          <button class="secondary-action" id="restoreCellColor" type="button">恢复识别</button>
+          <button class="secondary-action danger" id="clearCellColor" type="button">设为空白</button>
+          <button class="secondary-action" id="cancelCellEditor" type="button">取消</button>
+          <button class="primary-action" type="submit">应用色号</button>
         </div>
       </form>
     </dialog>
@@ -329,6 +361,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="./app-board.js?v=20260813-1"></script>
+    <script src="./app-board.js?v=20260818-1"></script>
   </body>
 </html>

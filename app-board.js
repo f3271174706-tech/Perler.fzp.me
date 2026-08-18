@@ -44,7 +44,9 @@ const state = {
   dragging: false, renderToken: 0, palettePromise: null, analysisBusy: false,
   adminMode: false, adminSessionExpiresAt: 0, adminSessionRenewedAt: 0,
   uploadedExampleUrls: new Map(), exampleDbPromise: null,
-  examplePointerDrag: null, alignment: null, pendingExample: null, sheetColorProfile: null
+  examplePointerDrag: null, alignment: null, pendingExample: null, sheetColorProfile: null,
+  cellEdits: new Map(), detectedCells: null, editedBaseCache: { normal: null, mirror: null },
+  editMode: false, editingCellIndex: null, pointers: new Map(), boardGesture: null
 };
 const els = {
   workspace: $("workspace"), drop: $("boardStage"), file: $("fileInput"),
@@ -92,14 +94,26 @@ function nearestMard(rgb) {
   return best;
 }
 
+function populateMardOptions() {
+  const list = $("mardColorOptions");
+  if (!list || list.dataset.ready === "true" || !state.mard.length) return;
+  const fragment = document.createDocumentFragment();
+  for (const color of state.mard) {
+    const option = document.createElement("option");
+    option.value = color.code; option.label = `${color.code} · ${color.hex}`; fragment.appendChild(option);
+  }
+  list.replaceChildren(fragment); list.dataset.ready = "true";
+}
+
 async function ensurePalette() {
-  if (state.mard.length) return state.mard;
+  if (state.mard.length) { populateMardOptions(); return state.mard; }
   if (!state.palettePromise) state.palettePromise = fetch("./mard-291.json").then(response => {
     if (!response.ok) throw new Error("MARD 色库加载失败");
     return response.json();
   }).then(data => {
     if (data.color_count !== 291 || !Array.isArray(data.colors) || data.colors.length !== 291) throw new Error("MARD 291 色库数据不完整");
-    state.mard = data.colors.map((color, index) => ({ ...color, lab: Array.isArray(color.lab) ? color.lab : rgbToLab(color.rgb), id: index })); return state.mard;
+    state.mard = data.colors.map((color, index) => ({ ...color, lab: Array.isArray(color.lab) ? color.lab : rgbToLab(color.rgb), id: index }));
+    populateMardOptions(); return state.mard;
   });
   return state.palettePromise;
 }
@@ -118,7 +132,8 @@ function acceptFile(file, purpose = "pattern") {
 }
 
 async function loadImage(image, filename, forcedSize = null, calibratedGrid = null, onProgress = null) {
-  Object.assign(state, { image, name: filename, used: [], grid: null, fallbackGroups: null, mirroredBase: null, zoom: 1, mirrored: false, x: 0, y: 0, sheetColorProfile: null });
+  Object.assign(state, { image, name: filename, used: [], grid: null, fallbackGroups: null, mirroredBase: null, zoom: 1, mirrored: false, x: 0, y: 0, sheetColorProfile: null, detectedCells: null, editingCellIndex: null, editedBaseCache: { normal: null, mirror: null }, boardGesture: null });
+  state.cellEdits.clear(); state.pointers.clear(); setEditMode(false, true);
   state.selected.clear(); els.search.value = "";
   $("mirrorButton").classList.remove("active");
   $("patternName").textContent = filename.replace(/\.[^.]+$/, "");
@@ -136,6 +151,7 @@ async function loadImage(image, filename, forcedSize = null, calibratedGrid = nu
       ? await analyzeGridCellsAsync(state.grid, ratio => onProgress(.12 + ratio * .84, `正在识别第 ${Math.min(state.grid.rows, Math.max(1, Math.ceil(ratio * state.grid.rows)))} / ${state.grid.rows} 行…`))
       : analyzeGridCells(state.grid);
     else state.used = await analyzeFallbackColors(image);
+    state.detectedCells = state.grid ? [...state.grid.cells] : null;
     onProgress?.(.98, "正在生成色号与数量统计…");
     renderPalette(); renderFocus(); updateSummary(); updateGridReadout();
     updateGridControls();
@@ -902,8 +918,36 @@ function mirroredBaseImage() {
   return output;
 }
 
+function editedBaseImage(mirrored = false) {
+  const source = mirrored ? mirroredBaseImage() : state.original;
+  if (!source || !state.grid || !state.cellEdits.size) return source;
+  const cacheKey = mirrored ? "mirror" : "normal";
+  if (state.editedBaseCache[cacheKey]) return state.editedBaseCache[cacheKey];
+  const canvas = document.createElement("canvas"); canvas.width = source.width; canvas.height = source.height;
+  const context = canvas.getContext("2d"); context.putImageData(source, 0, 0);
+  const grid = state.grid, cellW = (grid.right - grid.left) / grid.cols, cellH = (grid.bottom - grid.top) / grid.rows;
+  const fontSize = Math.max(4, Math.min(cellW, cellH) * .36);
+  context.textAlign = "center"; context.textBaseline = "middle"; context.font = `700 ${fontSize}px Inter, Arial, sans-serif`;
+  for (const [index, code] of state.cellEdits) {
+    const row = Math.floor(index / grid.cols), sourceCol = index % grid.cols;
+    const col = mirrored ? grid.cols - 1 - sourceCol : sourceCol;
+    const left = Math.round(grid.left + col * cellW), right = Math.round(grid.left + (col + 1) * cellW);
+    const top = Math.round(grid.top + row * cellH), bottom = Math.round(grid.top + (row + 1) * cellH);
+    const color = code ? state.mard.find(item => item.code === code) : null;
+    context.fillStyle = color?.hex || "#ffffff"; context.fillRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
+    context.strokeStyle = "rgba(95,95,95,.34)"; context.lineWidth = Math.max(1, Math.min(cellW, cellH) * .035);
+    context.strokeRect(left + context.lineWidth / 2, top + context.lineWidth / 2, Math.max(0, right - left - context.lineWidth), Math.max(0, bottom - top - context.lineWidth));
+    if (color && Math.min(cellW, cellH) >= 7) {
+      context.fillStyle = luminance(...color.rgb) < 145 ? "#ffffff" : "#242424";
+      context.fillText(color.code, (left + right) / 2, (top + bottom) / 2, Math.max(1, right - left - 2));
+    }
+  }
+  state.editedBaseCache[cacheKey] = context.getImageData(0, 0, canvas.width, canvas.height);
+  return state.editedBaseCache[cacheKey];
+}
+
 function displayBaseImage() {
-  return state.mirrored && state.grid ? mirroredBaseImage() : state.original;
+  return editedBaseImage(Boolean(state.mirrored && state.grid));
 }
 
 function safeFileBase() {
@@ -934,7 +978,7 @@ async function exportPattern(kind) {
       downloadBlob(new Blob(["\ufeff", lines.join("\r\n")], { type: "text/plain;charset=utf-8" }), `${safeFileBase()}_拼豆数量.txt`);
       toast("拼豆数量 TXT 已导出");
     } else {
-      const imageData = kind === "mirror" ? mirroredBaseImage() : state.original;
+      const imageData = editedBaseImage(kind === "mirror");
       if (!imageData) return toast("需要先识别网格才能导出镜像图");
       downloadBlob(await imageDataBlob(imageData), `${safeFileBase()}_${kind === "mirror" ? "高清镜像图" : "高清原图"}.png`);
       toast(kind === "mirror" ? "高清镜像图已导出" : "高清原图已导出");
@@ -978,6 +1022,8 @@ function updateGridReadout() {
   $("mirrorButton").disabled = !state.grid;
   $("exportMirror").disabled = !state.grid;
   $("exportTxt").disabled = !state.grid;
+  $("editCellsButton").disabled = !state.grid;
+  if (!state.grid) setEditMode(false, true);
 }
 function updateGridControls() {
   if (!state.grid) return;
@@ -999,6 +1045,7 @@ async function reanalyzeGrid(forcedSize = null) {
     const grid = detectGrid(state.image, forcedSize);
     if (!grid) throw new Error("未能定位规则网格边界");
     state.selected.clear(); state.grid = grid; state.mirroredBase = null; state.used = analyzeGridCells(grid);
+    state.cellEdits.clear(); state.detectedCells = [...grid.cells]; state.editedBaseCache = { normal: null, mirror: null }; setEditMode(false, true);
     renderPalette(); renderFocus(); updateSummary(); updateGridReadout();
     updateExampleReview();
     $("autoGridOption").textContent = `自动 · ${grid.cols}×${grid.rows}`;
@@ -1019,6 +1066,73 @@ function updateSummary() {
 }
 function clearFocus() { state.selected.clear(); renderPalette(); renderFocus(); updateSummary(); }
 
+function setEditMode(enabled, silent = false) {
+  const active = Boolean(enabled && state.grid);
+  state.editMode = active;
+  $("editCellsButton").classList.toggle("active", active);
+  $("editCellsButton").setAttribute("aria-pressed", String(active));
+  els.stage.classList.toggle("editing-cells", active);
+  if (!active && $("cellEditorDialog").open) $("cellEditorDialog").close();
+  if (!silent) toast(active ? "编辑色号已开启：轻点任意格子，拖动可移动，双指可缩放" : "编辑色号已关闭", active ? 3200 : 1800);
+}
+
+function rebuildUsedFromGrid() {
+  if (!state.grid) return;
+  const colors = new Map(), colorByCode = new Map(state.mard.map(color => [color.code, color]));
+  for (const code of state.grid.cells) {
+    if (!code) continue;
+    const color = colorByCode.get(code); if (!color) continue;
+    const item = colors.get(code) || { ...color, count: 0 }; item.count++; colors.set(code, item);
+  }
+  state.grid.codeCounts = new Map([...colors].map(([code, item]) => [code, item.count]));
+  state.used = [...colors.values()].sort(sortByCode);
+  for (const code of [...state.selected]) if (!colors.has(code)) state.selected.delete(code);
+}
+
+function applyCellEdit(index, code, restore = false) {
+  if (!state.grid || !Number.isInteger(index) || index < 0 || index >= state.grid.cells.length) return;
+  const detected = state.detectedCells?.[index] ?? null;
+  const nextCode = restore ? detected : code;
+  state.grid.cells[index] = nextCode;
+  if (nextCode === detected) state.cellEdits.delete(index); else state.cellEdits.set(index, nextCode);
+  state.editedBaseCache = { normal: null, mirror: null };
+  rebuildUsedFromGrid(); renderPalette(); renderFocus(); updateSummary(); updateExampleReview();
+  const row = Math.floor(index / state.grid.cols) + 1, col = index % state.grid.cols + 1;
+  toast(restore ? `已恢复第 ${row} 行、第 ${col} 列的识别结果` : `第 ${row} 行、第 ${col} 列已改为${nextCode || "空白"}`);
+}
+
+function cellColorByInput() {
+  const code = $("cellColorInput").value.trim().toUpperCase();
+  return state.mard.find(color => color.code.toUpperCase() === code) || null;
+}
+
+function updateCellEditorPreview() {
+  const input = $("cellColorInput"), code = input.value.trim().toUpperCase(), color = state.mard.find(item => item.code.toUpperCase() === code);
+  input.value = code;
+  $("cellEditorSwatch").style.background = color?.hex || "#fff";
+  $("cellEditorCode").textContent = color?.code || (code ? "无效色号" : "空白");
+  $("cellEditorError").classList.toggle("hidden", !code || Boolean(color));
+}
+
+function openCellEditorAt(clientX, clientY) {
+  if (!state.editMode || !state.grid) return;
+  const rect = els.canvas.getBoundingClientRect();
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return;
+  const pixelX = (clientX - rect.left) * els.canvas.width / rect.width;
+  const pixelY = (clientY - rect.top) * els.canvas.height / rect.height;
+  const grid = state.grid;
+  if (pixelX < grid.left || pixelX >= grid.right || pixelY < grid.top || pixelY >= grid.bottom) return toast("请轻点网格区域内的格子");
+  const displayCol = clamp(Math.floor((pixelX - grid.left) * grid.cols / (grid.right - grid.left)), 0, grid.cols - 1);
+  const row = clamp(Math.floor((pixelY - grid.top) * grid.rows / (grid.bottom - grid.top)), 0, grid.rows - 1);
+  const col = state.mirrored ? grid.cols - 1 - displayCol : displayCol;
+  const index = row * grid.cols + col, code = grid.cells[index] || "";
+  state.editingCellIndex = index;
+  $("cellEditorPosition").textContent = `第 ${row + 1} 行 · 第 ${col + 1} 列${code ? ` · 当前 ${code}` : " · 当前空白"}`;
+  $("cellColorInput").value = code; $("cellEditorError").classList.add("hidden"); updateCellEditorPreview();
+  $("cellEditorDialog").showModal();
+  requestAnimationFrame(() => { $("cellColorInput").focus(); $("cellColorInput").select(); });
+}
+
 function transformCanvas() {
   state.zoom = clamp(state.zoom, MIN_ZOOM, MAX_ZOOM);
   constrainPan();
@@ -1038,6 +1152,62 @@ function constrainPan() {
 }
 function setZoom(value) { state.zoom = clamp(value, MIN_ZOOM, MAX_ZOOM); transformCanvas(); }
 
+function boardPoint(event) { return { id: event.pointerId, x: event.clientX, y: event.clientY }; }
+function boardDistance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function boardMidpoint(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+
+function startBoardPan(point, suppressEdit = false) {
+  state.boardGesture = { type: "pan", pointerId: point.id, startX: point.x, startY: point.y, x: state.x, y: state.y, moved: suppressEdit, suppressEdit };
+}
+
+function startBoardPinch() {
+  const points = [...state.pointers.values()].slice(0, 2); if (points.length < 2) return;
+  const rect = els.stage.getBoundingClientRect(), midpoint = boardMidpoint(points[0], points[1]);
+  state.boardGesture = {
+    type: "pinch", distance: Math.max(1, boardDistance(points[0], points[1])), zoom: state.zoom,
+    x: state.x, y: state.y, midpoint, stageCenter: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, moved: true
+  };
+}
+
+function handleBoardPointerDown(event) {
+  if (!state.image || !els.stage.classList.contains("has-image") || (event.pointerType === "mouse" && event.button !== 0)) return;
+  event.preventDefault(); const point = boardPoint(event); state.pointers.set(event.pointerId, point);
+  try { els.stage.setPointerCapture(event.pointerId); } catch (_) { /* Synthetic test events do not own capture. */ }
+  if (state.pointers.size === 1) startBoardPan(point); else startBoardPinch();
+}
+
+function handleBoardPointerMove(event) {
+  if (!state.pointers.has(event.pointerId)) return;
+  event.preventDefault(); const point = boardPoint(event); state.pointers.set(event.pointerId, point);
+  if (state.pointers.size >= 2) {
+    if (state.boardGesture?.type !== "pinch") startBoardPinch();
+    const gesture = state.boardGesture, points = [...state.pointers.values()].slice(0, 2);
+    const midpoint = boardMidpoint(points[0], points[1]), nextZoom = clamp(gesture.zoom * boardDistance(points[0], points[1]) / gesture.distance, MIN_ZOOM, MAX_ZOOM);
+    const ratio = nextZoom / gesture.zoom;
+    state.zoom = nextZoom;
+    state.x = midpoint.x - gesture.stageCenter.x - ratio * (gesture.midpoint.x - gesture.stageCenter.x - gesture.x);
+    state.y = midpoint.y - gesture.stageCenter.y - ratio * (gesture.midpoint.y - gesture.stageCenter.y - gesture.y);
+    transformCanvas(); return;
+  }
+  const gesture = state.boardGesture;
+  if (gesture?.type !== "pan" || gesture.pointerId !== event.pointerId) return;
+  const dx = point.x - gesture.startX, dy = point.y - gesture.startY;
+  if (Math.hypot(dx, dy) > 5) gesture.moved = true;
+  state.x = gesture.x + dx; state.y = gesture.y + dy; transformCanvas();
+}
+
+function finishBoardPointer(event) {
+  if (!state.pointers.has(event.pointerId)) return;
+  const pointerCount = state.pointers.size, gesture = state.boardGesture, point = state.pointers.get(event.pointerId);
+  const shouldEdit = pointerCount === 1 && gesture?.type === "pan" && gesture.pointerId === event.pointerId && !gesture.moved && !gesture.suppressEdit;
+  state.pointers.delete(event.pointerId);
+  try { if (els.stage.hasPointerCapture(event.pointerId)) els.stage.releasePointerCapture(event.pointerId); } catch (_) { /* no-op */ }
+  if (state.pointers.size === 1) startBoardPan([...state.pointers.values()][0], true);
+  else if (!state.pointers.size) state.boardGesture = null;
+  else startBoardPinch();
+  if (shouldEdit) openCellEditorAt(point.x, point.y);
+}
+
 function mountStartGallery() {
   const dialog = $("demoDialog"), target = $("startGallery"), grid = dialog?.querySelector(".demo-grid");
   if (target && grid) target.appendChild(grid);
@@ -1045,6 +1215,7 @@ function mountStartGallery() {
 }
 
 function showStartGallery(focusShell = null) {
+  setEditMode(false, true);
   els.empty.classList.remove("hidden");
   els.canvas.classList.add("hidden");
   els.stage.classList.remove("has-image");
@@ -1536,6 +1707,20 @@ $("confirmAlignment").onclick = confirmAlignment;
 els.alignmentDialog.addEventListener("cancel", event => { if (state.alignment?.processing) event.preventDefault(); else closeAlignment(); });
 
 $("showAll").onclick = clearFocus; els.search.oninput = renderPalette; $("paletteSort").onchange = renderPalette;
+$("editCellsButton").onclick = () => {
+  if (!state.grid) return toast("需要先识别网格，才能编辑单格色号");
+  setEditMode(!state.editMode);
+};
+$("cellColorInput").oninput = updateCellEditorPreview;
+$("cellEditorForm").onsubmit = event => {
+  event.preventDefault(); const color = cellColorByInput();
+  if (!color) { $("cellEditorError").classList.remove("hidden"); return; }
+  applyCellEdit(state.editingCellIndex, color.code); $("cellEditorDialog").close();
+};
+$("clearCellColor").onclick = () => { applyCellEdit(state.editingCellIndex, null); $("cellEditorDialog").close(); };
+$("restoreCellColor").onclick = () => { applyCellEdit(state.editingCellIndex, null, true); $("cellEditorDialog").close(); };
+$("cancelCellEditor").onclick = $("cancelCellEditorTop").onclick = () => $("cellEditorDialog").close();
+$("cellEditorDialog").onclose = () => { state.editingCellIndex = null; $("cellEditorError").classList.add("hidden"); };
 $("exportOriginal").onclick = () => exportPattern("original");
 $("exportMirror").onclick = () => exportPattern("mirror");
 $("exportTxt").onclick = () => exportPattern("txt");
@@ -1560,9 +1745,9 @@ $("mirrorButton").onclick = () => {
   renderFocus(); transformCanvas();
 };
 $("zoomIn").onclick = () => setZoom(state.zoom + .25); $("zoomOut").onclick = () => setZoom(state.zoom - .25);
-els.canvas.onpointerdown = event => { state.dragging = true; state.start = { x: event.clientX - state.x, y: event.clientY - state.y }; els.canvas.setPointerCapture(event.pointerId); };
-els.canvas.onpointermove = event => { if (state.dragging) { state.x = event.clientX - state.start.x; state.y = event.clientY - state.start.y; transformCanvas(); } };
-els.canvas.onpointerup = els.canvas.onpointercancel = () => state.dragging = false;
+els.stage.onpointerdown = handleBoardPointerDown;
+els.stage.onpointermove = handleBoardPointerMove;
+els.stage.onpointerup = els.stage.onpointercancel = finishBoardPointer;
 els.stage.addEventListener("wheel", event => { if (!state.image) return; event.preventDefault(); setZoom(state.zoom + (event.deltaY < 0 ? .1 : -.1)); }, { passive: false });
 window.onresize = () => { if (state.image) fitCanvas(false); if (state.alignment) { layoutAlignmentCanvas(); renderAlignmentPreview(); } };
 ensurePalette().catch(error => { console.error(error); toast("MARD 291 色库加载失败", 3500); });
