@@ -1,5 +1,5 @@
 [Unit]
-Description=perler.cloud static web application
+Description=perler.cloud web application and shared example gallery
 After=network-online.target
 Wants=network-online.target
 
@@ -8,9 +8,15 @@ Type=simple
 User=perler-cloud
 Group=perler-cloud
 WorkingDirectory=/opt/perler-cloud/current
-ExecStart=/usr/bin/python3 -m http.server 18040 --bind 127.0.0.1 --directory /opt/perler-cloud/current
+Environment=PERLER_PORT=18040
+Environment=PERLER_DATA_DIR=/var/lib/perler-cloud
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/perler-cloud/app.env
+ExecStart=/usr/local/bin/node /opt/perler-cloud/current/server.mjs
 Restart=on-failure
 RestartSec=3s
+StateDirectory=perler-cloud
+UMask=0027
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -24,8 +30,9 @@ LockPersonality=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-MemoryHigh=128M
-MemoryMax=192M
+ReadWritePaths=/var/lib/perler-cloud
+MemoryHigh=256M
+MemoryMax=384M
 TasksMax=64
 
 [Install]

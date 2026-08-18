@@ -13,7 +13,7 @@ if (!adminKey) throw new Error("PERLER_ADMIN_KEY is required");
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => {
-    if (["error", "warning"].includes(message.type())) errors.push(message.text());
+    if (["error", "warning"].includes(message.type()) && !message.text().includes("401 (Unauthorized)")) errors.push(message.text());
   });
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
@@ -36,7 +36,7 @@ if (!adminKey) throw new Error("PERLER_ADMIN_KEY is required");
   await page.reload({ waitUntil: "networkidle" });
   const restoredWithoutKey = await button.getAttribute("aria-pressed") === "true" && await upload.isVisible();
 
-  const source = await (await page.request.get(new URL("app-board.js?v=20260812-3", baseUrl).href)).text();
+  const source = await (await page.request.get(new URL("app-board.js?v=20260818-2", baseUrl).href)).text();
   const keyNotExposed = !source.includes(adminKey);
   await button.click();
   const closesWithoutKey = await button.getAttribute("aria-pressed") === "false" && await upload.isHidden();

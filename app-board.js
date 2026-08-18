@@ -14,10 +14,6 @@ const EXAMPLE_DB_NAME = "perler-example-gallery";
 const EXAMPLE_DB_STORE = "examples";
 const EXAMPLE_ORDER_KEY = "perler.example-order.v1";
 const EXAMPLE_HIDDEN_KEY = "perler.hidden-builtins.v1";
-const ADMIN_KEY_SHA256 = "4e6cd9d2836665480af693cea22109de0fce692b1739f1392dcd3df86b57f36e";
-const ADMIN_SESSION_COOKIE = "perler_admin_session";
-const ADMIN_SESSION_VERSION = "v1";
-const ADMIN_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const ADMIN_SESSION_RENEW_THROTTLE_MS = 60 * 1000;
 // Screen colors used by this numbered-sheet renderer differ from the generic
 // MARD chart.  The printed labels are authoritative; these anchors were read
@@ -42,11 +38,12 @@ const state = {
   image: null, name: "", mard: [], used: [], selected: new Set(), original: null,
   grid: null, fallbackGroups: null, mirroredBase: null, zoom: 1, mirrored: false, x: 0, y: 0,
   dragging: false, renderToken: 0, palettePromise: null, analysisBusy: false,
-  adminMode: false, adminSessionExpiresAt: 0, adminSessionRenewedAt: 0,
+  adminMode: false, adminSessionRenewedAt: 0,
   uploadedExampleUrls: new Map(), exampleDbPromise: null,
   examplePointerDrag: null, alignment: null, pendingExample: null, sheetColorProfile: null,
   cellEdits: new Map(), detectedCells: null, editedBaseCache: { normal: null, mirror: null },
-  editMode: false, editingCellIndex: null, pointers: new Map(), boardGesture: null
+  editMode: false, editingCellIndex: null, pointers: new Map(), boardGesture: null,
+  serverHiddenBuiltins: new Set(), galleryReady: false, legacyMigrationPromise: null
 };
 const els = {
   workspace: $("workspace"), drop: $("boardStage"), file: $("fileInput"),
@@ -1240,19 +1237,28 @@ function clearExampleReview(showGallery = false) {
   if (showGallery) showStartGallery();
 }
 
-function readStoredList(key) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
-  } catch (error) {
-    console.warn(`无法读取示例图库设置 ${key}`, error);
-    return [];
+async function apiJson(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body && typeof options.body === "string" && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  const response = await fetch(url, { credentials: "same-origin", ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    setAdminMode(false, false);
+    state.adminSessionRenewedAt = 0;
   }
+  if (!response.ok) throw Object.assign(new Error(payload.error || `服务器请求失败 (${response.status})`), { status: response.status });
+  return payload;
 }
 
-function writeStoredList(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); }
-  catch (error) { console.warn(`无法保存示例图库设置 ${key}`, error); }
+async function uploadExampleBlobToServer(blob, filename, gridSpec) {
+  const response = await fetch("/api/examples", {
+    method: "POST", credentials: "same-origin", body: blob,
+    headers: { "Content-Type": "image/png", "X-Example-Name": encodeURIComponent(filename), "X-Grid-Spec": gridSpec }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 401) setAdminMode(false, false);
+  if (!response.ok) throw Object.assign(new Error(payload.error || `服务器保存失败 (${response.status})`), { status: response.status });
+  return payload.example;
 }
 
 function openExampleDatabase() {
@@ -1279,17 +1285,6 @@ async function readUploadedExamples() {
   });
 }
 
-async function storeUploadedExample(record) {
-  const database = await openExampleDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(EXAMPLE_DB_STORE, "readwrite");
-    transaction.objectStore(EXAMPLE_DB_STORE).put(record);
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error || new Error("示例图纸保存失败"));
-    transaction.onabort = () => reject(transaction.error || new Error("示例图纸保存已取消"));
-  });
-}
-
 async function removeUploadedExample(id) {
   const database = await openExampleDatabase();
   return new Promise((resolve, reject) => {
@@ -1304,10 +1299,12 @@ async function removeUploadedExample(id) {
 function exampleGrid() { return document.querySelector("#startGallery .demo-grid"); }
 function builtinExampleId(card) { return `builtin:${String(card.dataset.demoSrc || "").split("/").pop()}`; }
 
-function saveExampleOrder() {
+async function saveExampleOrder() {
   const grid = exampleGrid();
   if (!grid) return;
-  writeStoredList(EXAMPLE_ORDER_KEY, [...grid.querySelectorAll(":scope > .demo-card-shell")].map(shell => shell.dataset.exampleId));
+  const order = [...grid.querySelectorAll(":scope > .demo-card-shell")].map(shell => shell.dataset.exampleId);
+  const payload = await apiJson("/api/examples/order", { method: "PUT", body: JSON.stringify({ order, hiddenBuiltins: [...state.serverHiddenBuiltins] }) });
+  state.serverHiddenBuiltins = new Set(payload.hiddenBuiltins || []);
 }
 
 function refreshExampleNumbers() {
@@ -1319,12 +1316,12 @@ function refreshExampleNumbers() {
   });
 }
 
-function applyStoredExampleOrder() {
+function applyExampleOrder(savedOrder = []) {
   const grid = exampleGrid();
   if (!grid) return;
   const shells = [...grid.querySelectorAll(":scope > .demo-card-shell")];
   const byId = new Map(shells.map(shell => [shell.dataset.exampleId, shell]));
-  const ordered = readStoredList(EXAMPLE_ORDER_KEY).map(id => byId.get(id)).filter(Boolean);
+  const ordered = savedOrder.map(id => byId.get(id)).filter(Boolean);
   const included = new Set(ordered);
   [...ordered, ...shells.filter(shell => !included.has(shell))].forEach(shell => grid.appendChild(shell));
   refreshExampleNumbers();
@@ -1342,7 +1339,10 @@ function finishExamplePointerDrag(event) {
   if (drag.handle.hasPointerCapture?.(drag.pointerId)) drag.handle.releasePointerCapture(drag.pointerId);
   state.examplePointerDrag = null;
   refreshExampleNumbers();
-  saveExampleOrder();
+  saveExampleOrder().catch(error => {
+    console.error(error);
+    toast("排序保存失败，请刷新后重试", 3500);
+  });
 }
 
 function moveExamplePointerDrag(event) {
@@ -1386,18 +1386,27 @@ async function deleteExample(shell) {
   if (!window.confirm(`确定从示例图库删除“${label}”吗？`)) return;
   try {
     if (shell.dataset.uploaded === "true") {
-      await removeUploadedExample(id);
+      await apiJson(`/api/examples/${encodeURIComponent(id)}`, { method: "DELETE" });
       const source = state.uploadedExampleUrls.get(id);
       if (source) URL.revokeObjectURL(source);
       state.uploadedExampleUrls.delete(id);
+      shell.remove();
+      refreshExampleNumbers();
+      await saveExampleOrder();
     } else {
-      const hidden = new Set(readStoredList(EXAMPLE_HIDDEN_KEY));
-      hidden.add(id);
-      writeStoredList(EXAMPLE_HIDDEN_KEY, [...hidden]);
+      const parent = shell.parentNode, next = shell.nextSibling;
+      state.serverHiddenBuiltins.add(id);
+      shell.remove();
+      refreshExampleNumbers();
+      try {
+        await saveExampleOrder();
+      } catch (error) {
+        state.serverHiddenBuiltins.delete(id);
+        parent?.insertBefore(shell, next);
+        refreshExampleNumbers();
+        throw error;
+      }
     }
-    shell.remove();
-    refreshExampleNumbers();
-    saveExampleOrder();
     toast("示例图纸已删除");
   } catch (error) {
     console.error(error);
@@ -1443,10 +1452,14 @@ function enhanceExampleCard(card, id, uploaded = false) {
 }
 
 function createUploadedExampleCard(record) {
-  const previousSource = state.uploadedExampleUrls.get(record.id);
-  if (previousSource) URL.revokeObjectURL(previousSource);
-  const source = URL.createObjectURL(record.blob);
-  state.uploadedExampleUrls.set(record.id, source);
+  let source = record.url;
+  if (!source && record.blob) {
+    const previousSource = state.uploadedExampleUrls.get(record.id);
+    if (previousSource) URL.revokeObjectURL(previousSource);
+    source = URL.createObjectURL(record.blob);
+    state.uploadedExampleUrls.set(record.id, source);
+  }
+  if (!source) return null;
   const card = document.createElement("button");
   card.className = "demo-card";
   card.type = "button";
@@ -1464,22 +1477,28 @@ function createUploadedExampleCard(record) {
   return enhanceExampleCard(card, record.id, true);
 }
 
+function findExampleShell(id) {
+  return [...(exampleGrid()?.querySelectorAll(":scope > .demo-card-shell") || [])].find(shell => shell.dataset.exampleId === id) || null;
+}
+
 async function initializeExampleGallery() {
   const grid = exampleGrid();
   if (!grid) throw new Error("示例图库不可用");
-  const hidden = new Set(readStoredList(EXAMPLE_HIDDEN_KEY));
+  const payload = await apiJson("/api/examples");
+  state.serverHiddenBuiltins = new Set(payload.hiddenBuiltins || []);
   [...grid.querySelectorAll(":scope > .demo-card")].forEach(card => {
     const id = builtinExampleId(card);
-    if (hidden.has(id)) card.remove();
+    if (state.serverHiddenBuiltins.has(id)) card.remove();
     else enhanceExampleCard(card, id, false);
   });
-  const uploaded = await readUploadedExamples();
+  const uploaded = Array.isArray(payload.examples) ? payload.examples : [];
   uploaded.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
   uploaded.forEach(record => {
     const shell = createUploadedExampleCard(record);
     if (shell) grid.appendChild(shell);
   });
-  applyStoredExampleOrder();
+  applyExampleOrder(payload.order || []);
+  state.galleryReady = true;
   setAdminMode(state.adminMode, false);
 }
 
@@ -1496,61 +1515,42 @@ function setAdminMode(enabled, announce = true) {
   if (announce) toast(enabled ? "管理员模式已开启，可拖动排序或删除" : "管理员模式已关闭");
 }
 
-function adminSessionCookieSuffix(maxAge, expiresAt) {
-  const secure = location.protocol === "https:" ? "; Secure" : "";
-  return `; Path=/; Max-Age=${maxAge}; Expires=${new Date(expiresAt).toUTCString()}; SameSite=Strict${secure}`;
-}
-
-function readAdminSessionExpiry() {
-  const prefix = `${ADMIN_SESSION_COOKIE}=`;
-  const raw = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith(prefix));
-  if (!raw) return 0;
-  const match = decodeURIComponent(raw.slice(prefix.length)).match(/^v1\.(\d+)$/);
-  if (!match) return 0;
-  const expiresAt = Number(match[1]), now = Date.now();
-  const maximum = now + ADMIN_SESSION_MAX_AGE_SECONDS * 1000 + 5 * 60 * 1000;
-  return Number.isFinite(expiresAt) && expiresAt > now && expiresAt <= maximum ? expiresAt : 0;
-}
-
 function clearAdminSession() {
-  document.cookie = `${ADMIN_SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict${location.protocol === "https:" ? "; Secure" : ""}`;
-  state.adminSessionExpiresAt = 0;
   state.adminSessionRenewedAt = 0;
+  return fetch("/api/admin/session", { method: "DELETE", credentials: "same-origin" }).catch(error => console.warn("无法清除管理员会话", error));
 }
 
 function renewAdminSession(force = false) {
   if (!state.adminMode) return false;
   const now = Date.now();
-  if (state.adminSessionExpiresAt && now >= state.adminSessionExpiresAt) {
-    clearAdminSession();
-    setAdminMode(false, false);
-    toast("管理员登录已过期，请重新输入密钥", 3500);
-    return false;
-  }
   if (!force && now - state.adminSessionRenewedAt < ADMIN_SESSION_RENEW_THROTTLE_MS) return true;
-  const expiresAt = now + ADMIN_SESSION_MAX_AGE_SECONDS * 1000;
-  const value = encodeURIComponent(`${ADMIN_SESSION_VERSION}.${expiresAt}`);
-  document.cookie = `${ADMIN_SESSION_COOKIE}=${value}${adminSessionCookieSuffix(ADMIN_SESSION_MAX_AGE_SECONDS, expiresAt)}`;
-  state.adminSessionExpiresAt = expiresAt;
   state.adminSessionRenewedAt = now;
+  apiJson("/api/admin/session").then(payload => {
+    if (!payload.authenticated && state.adminMode) {
+      setAdminMode(false, false);
+      toast("管理员登录已过期，请重新输入密钥", 3500);
+    }
+  }).catch(error => {
+    if (error.status === 401 && state.adminMode) toast("管理员登录已过期，请重新输入密钥", 3500);
+    else console.warn("管理员会话续期失败", error);
+  });
   return true;
 }
 
-function restoreAdminSession() {
-  const expiresAt = readAdminSessionExpiry();
-  if (!expiresAt) {
-    clearAdminSession();
+async function restoreAdminSession() {
+  try {
+    const payload = await apiJson("/api/admin/session");
+    setAdminMode(Boolean(payload.authenticated), false);
+    if (payload.authenticated) {
+      state.adminSessionRenewedAt = Date.now();
+      await migrateLegacyExamples();
+    }
+    return Boolean(payload.authenticated);
+  } catch (error) {
+    console.warn("无法恢复管理员会话", error);
+    setAdminMode(false, false);
     return false;
   }
-  state.adminSessionExpiresAt = expiresAt;
-  setAdminMode(true, false);
-  return renewAdminSession(true);
-}
-
-async function sha256Hex(value) {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function openAdminKeyDialog() {
@@ -1566,24 +1566,58 @@ async function verifyAdminKey(event) {
   const dialog = $("adminKeyDialog"), input = $("adminKeyInput"), error = $("adminKeyError"), submit = $("adminKeySubmit");
   submit.disabled = true;
   try {
-    if (!crypto.subtle || await sha256Hex(input.value) !== ADMIN_KEY_SHA256) {
+    await apiJson("/api/admin/session", { method: "POST", body: JSON.stringify({ key: input.value }) });
+    input.removeAttribute("aria-invalid");
+    dialog.close();
+    setAdminMode(true);
+    state.adminSessionRenewedAt = Date.now();
+    await migrateLegacyExamples();
+  } catch (errorValue) {
+    if (errorValue.status === 401) {
       input.value = "";
       input.setAttribute("aria-invalid", "true");
       error.classList.remove("hidden");
       input.focus();
-      return;
+    } else {
+      console.error(errorValue);
+      toast("服务器暂时无法验证管理员密钥", 3500);
     }
-    input.removeAttribute("aria-invalid");
-    dialog.close();
-    setAdminMode(true);
-    state.adminSessionExpiresAt = Date.now() + ADMIN_SESSION_MAX_AGE_SECONDS * 1000;
-    renewAdminSession(true);
-  } catch (errorValue) {
-    console.error(errorValue);
-    toast("当前浏览器无法验证管理员密钥", 3500);
   } finally {
     submit.disabled = false;
   }
+}
+
+async function migrateLegacyExamples() {
+  if (!state.adminMode || !state.galleryReady) return;
+  if (state.legacyMigrationPromise) return state.legacyMigrationPromise;
+  state.legacyMigrationPromise = (async () => {
+    const records = await readUploadedExamples().catch(error => {
+      console.warn("无法读取旧版本地示例图库", error);
+      return [];
+    });
+    if (!records.length) return;
+    const grid = exampleGrid();
+    let migrated = 0;
+    for (const record of records.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))) {
+      if (!(record.blob instanceof Blob)) continue;
+      const normalizedName = String(record.name || "示例图纸.png").replace(/\.[^.]+$/, "") + ".png";
+      const uploaded = await uploadExampleBlobToServer(record.blob, normalizedName, record.gridSpec || "104x104");
+      if (!findExampleShell(uploaded.id)) {
+        const shell = createUploadedExampleCard(uploaded);
+        if (shell && grid) grid.appendChild(shell);
+      }
+      await removeUploadedExample(record.id);
+      migrated += 1;
+    }
+    if (migrated) {
+      localStorage.removeItem(EXAMPLE_ORDER_KEY);
+      localStorage.removeItem(EXAMPLE_HIDDEN_KEY);
+      refreshExampleNumbers();
+      await saveExampleOrder();
+      toast(`已将 ${migrated} 张本地图纸迁移到服务器图库`, 4200);
+    }
+  })().finally(() => { state.legacyMigrationPromise = null; });
+  return state.legacyMigrationPromise;
 }
 
 async function saveCalibratedExample(blob, filename, gridSpec) {
@@ -1592,21 +1626,18 @@ async function saveCalibratedExample(blob, filename, gridSpec) {
   uploadButton.disabled = true;
   uploadButton.textContent = "正在保存…";
   try {
-    const id = `uploaded:${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
     const normalizedName = filename.replace(/\.[^.]+$/, "") + ".png";
-    const record = { id, name: normalizedName, type: "image/png", blob, gridSpec, createdAt: Date.now() };
-    await storeUploadedExample(record);
-    navigator.storage?.persist?.().catch(() => {});
-    const shell = createUploadedExampleCard(record);
-    grid.appendChild(shell);
+    const record = await uploadExampleBlobToServer(blob, normalizedName, gridSpec);
+    const shell = findExampleShell(record.id) || createUploadedExampleCard(record);
+    if (!shell.parentNode) grid.appendChild(shell);
     refreshExampleNumbers();
-    saveExampleOrder();
+    await saveExampleOrder();
     showStartGallery(shell);
     toast(`示例图纸已按 ${gridSpec.replace("x", "×")} 保存`, 3200);
     return shell;
   } catch (error) {
     console.error(error);
-    toast("示例图纸保存失败，请检查浏览器存储空间", 4200);
+    toast(error.status === 401 ? "管理员登录已过期，请重新登录" : "示例图纸保存失败，请检查服务器连接", 4200);
     return null;
   } finally {
     uploadButton.disabled = false;
@@ -1649,12 +1680,18 @@ function loadDemoPattern(source, filename, gridSpec) {
 }
 
 mountStartGallery();
-restoreAdminSession();
-initializeExampleGallery().catch(error => { console.error(error); toast("已加载内置示例，但本地示例图库不可用", 4200); });
+initializeExampleGallery()
+  .then(() => restoreAdminSession())
+  .catch(error => {
+    console.error(error);
+    document.querySelectorAll("#startGallery .demo-card").forEach(card => enhanceExampleCard(card, builtinExampleId(card), false));
+    refreshExampleNumbers();
+    toast("服务器图库暂时不可用，已加载内置示例", 4200);
+  });
 $("addPattern").onclick = () => els.file.click();
 $("adminModeButton").onclick = () => {
   if (!state.adminMode) return openAdminKeyDialog();
-  clearAdminSession();
+  void clearAdminSession();
   setAdminMode(false);
 };
 $("adminKeyForm").onsubmit = verifyAdminKey;

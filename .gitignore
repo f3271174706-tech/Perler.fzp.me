@@ -6,6 +6,7 @@ node_modules/
 server.log
 server-error.log
 *.log
+.perler-data/
 
 # Generated browser test screenshots
 tests/*.png

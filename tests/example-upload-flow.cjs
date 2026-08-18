@@ -2,6 +2,7 @@ const { chromium } = require("playwright");
 const path = require("path");
 
 const baseUrl = process.env.PERLER_BASE_URL || "http://127.0.0.1:4173/";
+const adminKey = process.env.PERLER_ADMIN_KEY || "test-admin-key";
 
 (async () => {
   const browser = await chromium.launch({
@@ -9,23 +10,16 @@ const baseUrl = process.env.PERLER_BASE_URL || "http://127.0.0.1:4173/";
     executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
   });
   const context = await browser.newContext();
-  const origin = new URL(baseUrl).origin, expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-  await context.addCookies([{
-    name: "perler_admin_session", value: `v1.${expiresAt}`, url: origin,
-    expires: Math.floor(expiresAt / 1000), sameSite: "Strict", secure: origin.startsWith("https:")
-  }]);
+  const origin = new URL(baseUrl).origin;
+  const login = await context.request.post(`${origin}/api/admin/session`, { data: { key: adminKey } });
+  if (!login.ok()) throw new Error(`Administrator login failed: ${login.status()}`);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (["error", "warning"].includes(message.type())) errors.push(message.text()); });
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.evaluate(async () => {
-    localStorage.removeItem("perler.example-order.v1");
-    const request = indexedDB.deleteDatabase("perler-example-gallery");
-    await new Promise(resolve => { request.onsuccess = request.onerror = request.onblocked = resolve; });
-  });
-  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
   const initialCount = await page.locator("#startGallery .demo-card").count();
+  const initialServerGallery = await (await context.request.get(`${origin}/api/examples`)).json();
 
   await page.locator("#exampleFileInput").setInputFiles(path.resolve(__dirname, "../assets/demo-pattern.png"));
   await page.locator("#alignmentDialog").waitFor({ state: "visible" });
@@ -57,16 +51,23 @@ const baseUrl = process.env.PERLER_BASE_URL || "http://127.0.0.1:4173/";
   await page.waitForFunction(count => document.querySelectorAll("#startGallery .demo-card").length === count + 1, initialCount, { timeout: 30000 });
   const returnedToGallery = await page.locator("#startGallery").isVisible() && await page.locator("#beadCanvas").isHidden() && await page.locator("#exampleReview").isHidden();
   const addedCard = await page.locator("#startGallery .demo-card").last().evaluate(card => ({ name: card.dataset.demoName, grid: card.dataset.demoGrid, text: card.textContent }));
-  const databaseRecord = await page.evaluate(async () => {
-    const records = await readUploadedExamples();
-    const record = records.at(-1);
-    return record && { name: record.name, type: record.type, gridSpec: record.gridSpec, blobType: record.blob.type };
-  });
+  const serverGallery = await (await context.request.get(`${origin}/api/examples`)).json();
+  const initialIds = new Set(initialServerGallery.examples.map(record => record.id));
+  const serverRecord = serverGallery.examples.find(record => !initialIds.has(record.id));
+  const imageResponse = serverRecord && await context.request.get(new URL(serverRecord.url, origin).href);
 
-  const result = { baseUrl, initialCount, normalFlow, cancelDoesNotSave, localRecognitionReview, returnedToGallery, addedCard, databaseRecord, errors };
+  const secondContext = await browser.newContext();
+  const secondPage = await secondContext.newPage();
+  await secondPage.goto(baseUrl, { waitUntil: "networkidle" });
+  const visibleOnAnotherDevice = serverRecord && await secondPage.locator(`.demo-card-shell[data-example-id="${serverRecord.id}"]`).count() === 1;
+  await secondContext.close();
+
+  if (serverRecord) await context.request.delete(`${origin}/api/examples/${encodeURIComponent(serverRecord.id)}`);
+
+  const result = { baseUrl, initialCount, normalFlow, cancelDoesNotSave, localRecognitionReview, returnedToGallery, addedCard, serverRecord, imageAvailable: imageResponse?.ok(), visibleOnAnotherDevice, errors };
   console.log(JSON.stringify(result));
   await browser.close();
-  if (!normalFlow.step.includes("上传示例图纸") || !normalFlow.action.includes("本地识别") || normalFlow.grid !== "52x52" || !normalFlow.fourCrosshairs || !cancelDoesNotSave || !localRecognitionReview.notSavedYet || localRecognitionReview.grid !== "52 × 52" || localRecognitionReview.paletteItems < 1 || !localRecognitionReview.summary.includes("本地识别 52 × 52") || !localRecognitionReview.canvasVisible || !returnedToGallery || addedCard.grid !== "52x52" || !addedCard.text.includes("52 × 52") || databaseRecord.gridSpec !== "52x52" || databaseRecord.type !== "image/png" || databaseRecord.blobType !== "image/png" || errors.length) process.exit(1);
+  if (!normalFlow.step.includes("上传示例图纸") || !normalFlow.action.includes("本地识别") || normalFlow.grid !== "52x52" || !normalFlow.fourCrosshairs || !cancelDoesNotSave || !localRecognitionReview.notSavedYet || localRecognitionReview.grid !== "52 × 52" || localRecognitionReview.paletteItems < 1 || !localRecognitionReview.summary.includes("本地识别 52 × 52") || !localRecognitionReview.canvasVisible || !returnedToGallery || addedCard.grid !== "52x52" || !addedCard.text.includes("52 × 52") || serverRecord?.gridSpec !== "52x52" || !imageResponse?.ok() || !visibleOnAnotherDevice || errors.length) process.exit(1);
 })().catch(error => {
   console.error(error);
   process.exit(1);
