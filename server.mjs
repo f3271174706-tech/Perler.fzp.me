@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createPerlerMcpHandler } from "./perler-mcp.mjs";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
@@ -266,10 +267,13 @@ async function serveStatic(request, response, url) {
   }
 }
 
+const handleMcp = createPerlerMcpHandler({ getGallery: () => gallery, publicExample });
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
-    if (url.pathname.startsWith("/api/")) await handleApi(request, response, url);
+    if (url.pathname === "/mcp") await handleMcp(request, response);
+    else if (url.pathname.startsWith("/api/")) await handleApi(request, response, url);
     else await serveStatic(request, response, url);
   } catch (error) {
     console.error(error);
